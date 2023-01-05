@@ -189,16 +189,17 @@ do_sbom() {
 }
 
 prepare_for_platform() {
-    case "$PLATFORM" in
-    imx8mq_evk) #shellcheck disable=SC2039
+   case "$PLATFORM" in
+     imx8m*) #shellcheck disable=SC2039
         cat /bits/bsp-imx/NXP-EULA-LICENSE.txt
         [ -n "$ACCEPT" ] || bail "You need to read and accept the EULA before you can continue. Use the --accept-license argument."
         cp /bits/bsp-imx/"$PLATFORM"-flash.bin /bits/imx8-flash.bin
+        [ -n "$(ls /bits/bsp-imx/*.dtb)" ] && cp /bits/bsp-imx/*.dtb /bits/boot
         ;;
      *) #shellcheck disable=SC2039
         return
         ;;
-    esac
+   esac
 }
 
 # Lets' parse global options first
