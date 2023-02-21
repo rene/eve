@@ -1,0 +1,44 @@
+From 0d5b203922b05c9333cc9d7b0c33e4b0165fb2a2 Mon Sep 17 00:00:00 2001
+From: Sergiy Neodnichyk <SergiyN@sapling-inc.com>
+Date: Mon, 4 Jul 2022 11:05:00 +0300
+Subject: [PATCH 5/5] src/core/osutils.cc: Fix std::length_error exception on
+ reading the string attributes in sysfs.
+
+Add checking for std:string buffer overflow on reading string attribute from sysfs
+to fix the issue [1] that was reproduced on reading mmc device info on
+LS-ok1046ac2v1 Hardware  based on [2] chip.
+
+Reference:
+1. terminate called after throwing an instance of 'std::length_error'
+2. https://www.nxp.com/products/processors-and-microcontrollers/arm-processors/layerscape-processors/layerscape-1046a-and-1026a-processors:LS1046A
+
+Signed-off-by: Sergiy Neodnichyk <SergiyN@sapling-inc.com>
+---
+ src/core/osutils.cc | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/src/core/osutils.cc b/src/core/osutils.cc
+index b369f88..d4dc3e0 100644
+--- a/src/core/osutils.cc
++++ b/src/core/osutils.cc
+@@ -180,8 +180,16 @@ const string & def)
+     result = "";
+ 
+     while ((count = read(fd, buffer, sizeof(buffer))) > 0)
++    {
++      /* Validate the string length before processing.*/
++      if (count > result.max_size())
++      {
++          fprintf(stderr, "Can`t read the string with size %lu\n", count);
++          result = def;
++          return result;
++      }
+       result += string(buffer, count);
+-
++    }
+     close(fd);
+   }
+ 
+-- 
+2.39.1
+
