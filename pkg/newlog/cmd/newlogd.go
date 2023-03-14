@@ -595,7 +595,7 @@ func getMemlogMsg(logChan chan inputEntry, panicFileChan chan []byte) {
 		if !isApp && logInfo.Source == "" {
 			logInfo.Source = sourceName
 		}
-		if logInfo.Time == "" && strings.HasSuffix(msgTime, "Z") {
+		if logInfo.Time == "" {
 			logInfo.Time = msgTime
 		}
 		if logInfo.Pid != 0 {
@@ -1578,7 +1578,8 @@ func getDevTop10Inputs() {
 func getPtypeTimestamp(timeStr string) *timestamp.Timestamp {
 	t, err := time.Parse(time.RFC3339, timeStr)
 	if err != nil {
-		log.Fatal(err)
+		log.Warn(err)
+		t = time.Now()
 	}
 	tt := &timestamp.Timestamp{Seconds: t.Unix(), Nanos: int32(t.Nanosecond())}
 	return tt
