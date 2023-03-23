@@ -4,7 +4,10 @@
 ARG BUILD_PKGS_BASE="bash binutils-dev build-base bc bison flex openssl-dev util-linux-dev swig gnutls-dev perl python3 python3-dev py3-setuptools py3-pycryptodome py3-elftools"
 
 # we use the same image in several places
-ARG EVE_ALPINE_IMAGE=lfedge/eve-alpine:9fb9b9cbf7d90066a70e4704d04a6fe248ff52bb
+ARG EVE_ALPINE_IMAGE=lfedge/eve-alpine:a4793745e56b2a2f5af5975d0c623fbeefef2c00
+
+# OPTEE-OS images
+FROM lfedge/eve-optee-os:32285d72fd50cc4d5f736f38b7c2470d12378bc2 AS optee-os
 
 # hadolint ignore=DL3006
 FROM ${EVE_ALPINE_IMAGE} as build-native
@@ -17,7 +20,7 @@ ARG BUILD_PKGS_BASE
 RUN BUILD_PKGS="${BUILD_PKGS_BASE}" eve-alpine-deploy.sh
 
 # hadolint ignore=DL3029
-FROM --platform=${BUILDPLATFORM} lfedge/eve-cross-compilers:2a1d062fce410865e7024a83de327a68e52db26c AS cross-compilers
+FROM --platform=${BUILDPLATFORM} lfedge/eve-cross-compilers:250abc77c8c39664905b66a2673102ec5cd3b056 AS cross-compilers
 
 # will use several packages from target arch and copy them to sysroot
 # hadolint ignore=DL3006
@@ -63,6 +66,7 @@ ENV ATF_TARGETS "imx8mq_evk imx8mp_pollux imx8mp_epc_r3720"
 
 RUN mkdir /uboot-firmwares
 
+COPY --from=optee-os /opteeos_images /opteeos_images
 COPY patches /tmp/patches
 
 # ATF
@@ -71,6 +75,7 @@ WORKDIR /imx-atf
 # imx8mq_evk: last commit from imx_5.4.70_2.3.0 branch
 ENV ATF_COMMIT_imx8mq_evk 15e8ff164a8becfddb76cba2c68eeeae684cb398
 ENV ATF_imx8mq_evk "imx8mq"
+ENV ATF_SPD_imx8mq_evk "none"
 ENV ATF_SRC_imx8mq_evk "imx8mq_evk"
 ENV ATF_UART_imx8mq_evk "0x30860000"
 
@@ -78,12 +83,14 @@ ENV ATF_UART_imx8mq_evk "0x30860000"
 # Revision used by phytec's yocto bsp: lf-5.10.72-2.2.0
 ENV ATF_COMMIT_imx8mp_pollux 5782363f92a2fdf926784449270433cf3ddf44bd
 ENV ATF_imx8mp_pollux "imx8mp"
+ENV ATF_SPD_imx8mp_pollux "opteed"
 ENV ATF_SRC_imx8mp_pollux "pollux"
 ENV ATF_UART_imx8mp_pollux "0x30860000"
 
 # Advantech EPC-R3720
 ENV ATF_COMMIT_imx8mp_epc_r3720 5782363f92a2fdf926784449270433cf3ddf44bd
 ENV ATF_imx8mp_epc_r3720 "imx8mp"
+ENV ATF_SPD_imx8mp_epc_r3720 "opteed"
 ENV ATF_SRC_imx8mp_epc_r3720 "epc-r3720"
 ENV ATF_UART_imx8mp_epc_r3720 "0x30880000"
 
@@ -95,6 +102,7 @@ ADD https://github.com/nxp-imx/imx-atf.git#${ATF_COMMIT_imx8mp_epc_r3720} ${ATF_
 RUN for t in ${ATF_TARGETS}; do \
         [ "$EVE_TARGET_ARCH" != "aarch64" ] && break ;\
         target=$(eval echo \$ATF_${t}) ;\
+        spd=$(eval echo \$ATF_SPD_${t}) ;\
         repo=$(eval echo \$ATF_SRC_${t}) ;\
         uartbase=$(eval echo \$ATF_UART_${t}) ;\
         patchdir=$(eval echo /tmp/patches/atf-${t}) ;\
@@ -105,8 +113,12 @@ RUN for t in ${ATF_TARGETS}; do \
             CROSS_COMPILE="${CROSS_COMPILE_ENV}" \
             IMX_BOOT_UART_BASE="${uartbase}" \
             PLAT=${target} \
+            SPD=${spd} \
             bl31 ;\
-         mv build/${target}/release/bl31.bin /uboot-firmwares/${t}-bl31.bin) ;\
+         [ "$spd" = "none" ] && \
+            mv build/${target}/release/bl31.bin /uboot-firmwares/${t}-bl31.bin || \
+            (mv build/${target}/release/bl31.bin /uboot-firmwares/${t}-bl31-tee.bin && \
+             cp /opteeos_images/${t}/optee.bin /uboot-firmwares/${t}-tee.bin)) ;\
     done
 
 # IMX firmware
@@ -164,8 +176,11 @@ ENV FLASH_OFFSET_imx8mp_epc_r3720 "32"
 RUN for target in ${UBOOT_TARGETS}; do \
         [ "$EVE_TARGET_ARCH" != "aarch64" ] && break ;\
         make CROSS_COMPILE="${CROSS_COMPILE_ENV}" clean && \
-            rm -rf bl31.bin && \
-        cp "${target}"-bl31.bin bl31.bin && \
+            rm -rf bl31*.bin tee.bin && \
+        ([ -f "${target}"-bl31-tee.bin ] && \
+         (cp "${target}"-bl31-tee.bin bl31-tee.bin && \
+          cp "${target}"-tee.bin tee.bin) \
+         || cp "${target}"-bl31.bin bl31.bin) && \
         make CROSS_COMPILE="${CROSS_COMPILE_ENV}" \
             "$(eval echo \$UBOOT_CONFIG_${target})"_defconfig && \
         make CROSS_COMPILE="${CROSS_COMPILE_ENV}" \
