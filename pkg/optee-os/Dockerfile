@@ -79,6 +79,7 @@ ENV EVE_TA_SIGN_KEY="/optee_os/eve-optee.pem"
 
 # Target platforms to build OPTEE-OS
 ENV OPTEEOS_TARGETS="qemu imx8mp_pollux imx8mp_epc_r3720"
+#ENV OPTEEOS_TARGETS="imx8mp_pollux"
 
 # QEMU
 ENV OPTEEOS_REV_qemu=2be3770e85826ae69748fc3e68920d7293a98c5d
@@ -94,19 +95,25 @@ ENV OPTEEOS_imx8mp_pollux="imx"
 ENV OPTEEOS_FLAVOR_imx8mp_pollux="mx8mpevk"
 ENV OPTEEOS_UART_imx8mp_pollux="0x30860000"
 ENV OPTEEOS_SRC_imx8mp_pollux="pollux"
-ENV OPTEEOS_CUSTOM_imx8mp_pollux=""
+ENV OPTEEOS_CUSTOM_imx8mp_pollux="CFG_DT=n"
 
 ENV OPTEEOS_REV_imx8mp_epc_r3720=c939619d64dea014ad1b8382356eee4d1cbfbb22
 ENV OPTEEOS_imx8mp_epc_r3720="imx"
 ENV OPTEEOS_FLAVOR_imx8mp_epc_r3720="mx8mpevk"
 ENV OPTEEOS_UART_imx8mp_epc_r3720="0x30880000"
 ENV OPTEEOS_SRC_imx8mp_epc_r3720="epc_r3720"
-ENV OPTEEOS_CUSTOM_imx8mp_epc_r3720="CFG_DDR_SIZE=0x180000000ULL"
+ENV OPTEEOS_CUSTOM_imx8mp_epc_r3720="CFG_DDR_SIZE=0x180000000ULL CFG_DT=n"
+
+# Microsoft TPM branch revision
+ENV MS_TPM_REV=rsp2
+#ENV MS_TPM_REV=main
 
 # Repositories
 ADD https://github.com/OP-TEE/optee_os.git#${OPTEEOS_REV_qemu} ${OPTEEOS_SRC_qemu}
 ADD https://github.com/nxp-imx/imx-optee-os.git#${OPTEEOS_REV_imx8mp_epc_r3720} ${OPTEEOS_SRC_imx8mp_epc_r3720}
 ADD https://github.com/nxp-imx/imx-optee-os.git#${OPTEEOS_REV_imx8mp_pollux} ${OPTEEOS_SRC_imx8mp_pollux}
+ADD https://github.com/rene/ms-tpm-20-ref.git#${MS_TPM_REV} /ms-tpm-20-ref
+#ADD https://github.com/microsoft/ms-tpm-20-ref.git#${MS_TPM_REV} /ms-tpm-20-ref
 
 # hadolint ignore=DL3003,SC2086
 RUN for t in ${OPTEEOS_TARGETS}; do \
@@ -128,18 +135,39 @@ RUN for t in ${OPTEEOS_TARGETS}; do \
             CROSS_COMPILE_ta_arm32="${CROSS_COMPILE_ARM32_ENV}" \
             CROSS_COMPILE_ta_arm64="${CROSS_COMPILE_ENV}" \
             CFG_TEE_BENCHMARK=n \
-            CFG_TEE_CORE_LOG_LEVEL=1 \
+            CFG_TEE_CORE_LOG_LEVEL=3 \
+            CFG_TEE_TA_LOG_LEVEL=3 \
             PLATFORM="${target}" \
             PLATFORM_FLAVOR="${flavor}" \
             CFG_UART_BASE="${uartbase}" \
+            CFG_REE_FS=y \
+            CFG_PKCS11_TA=y \
+            CFG_USER_TA_TARGET_pkcs11=ta_arm64 \
+            CFG_DRIVERS_TPM2=y \
+            CFG_TPM_LOG_BASE_ADDR=0x57c00000 \
+            CFG_TPM_MAX_LOG_SIZE=0x200 \
             O=out/arm \
             ${customdef} ;\
          mkdir -p "/opteeos_bins/${t}" ;\
-         cp out/arm/core/tee-raw.bin "/opteeos_bins/${t}/optee.bin" ;\
-         cp -r out/arm/export-ta_arm64 "/opteeos_bins/${t}/export-ta_arm64") ;\
+         cp -r out/arm/export-ta_arm64 "/opteeos_bins/${t}/export-ta_arm64" ;\
+         cp out/arm/core/tee-raw.bin "/opteeos_bins/${t}/optee.bin") ;\
+         (cd /ms-tpm-20-ref/Samples/ARM32-FirmwareTPM/optee_ta/ ;\
+          make -j "$(getconf _NPROCESSORS_ONLN)" \
+            CROSS_COMPILE64=${CROSS_COMPILE_ENV} \
+            TA_CPU=cortex-a53 \
+            TA_CROSS_COMPILE=${CROSS_COMPILE_ENV} \
+            TA_DEV_KIT_DIR="/opteeos_bins/${t}/export-ta_arm64/" \
+            CFG_ARM64_ta_arm64=y \
+            CFG_AUTHVARS_USE_WOLF=y \
+            CFG_FTPM_USE_WOLF=y \
+            CFG_TA_DEBUG=y \
+            O="out/${t}" ;\
+         mkdir -p /ftpm_bins/${t} ;\
+         cp "fTPM/out/${t}/bc50d971-d4c9-42c4-82cb-343fb7f37896.ta" "/ftpm_bins/${t}/") ;\
     done
 
 FROM scratch
 COPY --from=build /opteeos_bins/ /opteeos_images
 COPY --from=build /optee_os/*.pem /opteeos_images
+COPY --from=build /ftpm_bins /ftpm_bins
 
