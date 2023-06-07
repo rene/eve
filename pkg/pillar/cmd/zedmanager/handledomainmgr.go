@@ -95,7 +95,7 @@ func MaybeAddDomainConfig(ctx *zedmanagerContext,
 			dc.Ramdisk = "/usr/lib/xen/boot/runx-initrd"
 		}
 		if dc.ExtraArgs == "" {
-			dc.ExtraArgs = "console=hvc0 root=9p dhcp=1"
+			dc.ExtraArgs = "console=hvc0 root=9p dhcp=1 clocksource=acpi_pm"
 		}
 		if dc.EnableVnc {
 			dc.ExtraArgs += " console=tty0"
