@@ -64,46 +64,6 @@ wait_for_touch() {
 }
 
 INPUTFILE=/run/nim/DeviceNetworkStatus/global.json
-DEFAULT_NTPSERVER=pool.ntp.org
-# Return one line with all the NTP servers for all the ports
-get_ntp_servers() {
-    if [ ! -f "$INPUTFILE" ];  then
-        return
-    fi
-    res=
-    i=0
-    while true; do
-        portInfo=$(jq -c .Ports[$i] < $INPUTFILE)
-        if [ "$portInfo" = "null" ] || [ -z "$portInfo" ]; then
-            break
-        fi
-        list=$(echo "$portInfo" | jq .NtpServers)
-        ns=$(echo "$list" | awk -F\" '{ if (NF > 2) { print $2}}')
-        res="$res $ns"
-        i=$((i + 1))
-    done
-    out=
-    # Make uniform whitespace separator
-    for r in $res; do
-        if [ -z "$out" ]; then
-            out="$r"
-        else
-            out="$out $r"
-        fi
-    done
-    echo "$out"
-}
-
-# Return one (the first) ntp server with default if none
-get_ntp_server() {
-    res=$(get_ntp_servers)
-    one="$DEFAULT_NTPSERVER"
-    for first in $res; do
-        one=$first
-        break
-    done
-    echo "$one"
-}
 
 # If zedbox is already running we don't have to start it.
 if ! pgrep zedbox >/dev/null; then
@@ -234,28 +194,8 @@ if [ ! -s "$DEVICE_CERT_NAME" ] || [ $RTC = 0 ] || [ -n "$FIRSTBOOT" ]; then
     # Deposit any diag information from nim
     access_usb
 
-    # We need to try our best to setup time *before* we generate the certifiacte.
-    # Otherwise the cert may have start date in the future or in 1970
-    # Did NIM get some NTP servers from DHCP? Pick the first one we find.
-    # Otherwise we use the default
-    NTPSERVER=$(get_ntp_server)
-    echo "$(date -Ins -u) Check for NTP config"
-    if [ -f /usr/sbin/ntpd ]; then
-        # Wait until synchronized and force the clock to be set from ntp
-        echo "$(date -Ins -u) ntpd -q -n -g -p $NTPSERVER"
-        /usr/sbin/ntpd -q -n -g -p "$NTPSERVER"
-        ret_code=$?
-        echo "$(date -Ins -u) ntpd: $ret_code"
-        # Run ntpd to keep it in sync.
-        echo "$(date -Ins -u) ntpd -p $NTPSERVER"
-        /usr/sbin/ntpd -p "$NTPSERVER"
-        ret_code=$?
-        echo "$(date -Ins -u) ntpd: $ret_code"
-        # Add ndpd to watchdog
-        touch "$WATCHDOG_PID/ntpd.pid"
-    else
-        echo "$(date -Ins -u) No ntpd"
-    fi
+    # NTP disabled for testing
+    echo "$(date -Ins -u) No ntpd"
 
     # The device cert generation needs the current time. Some hardware
     # doesn't have a battery-backed clock
@@ -271,23 +211,8 @@ if [ ! -s "$DEVICE_CERT_NAME" ] || [ $RTC = 0 ] || [ -n "$FIRSTBOOT" ]; then
         hwclock -u -v --systohc
     fi
 else
-    # Start ntpd before network is up. Assumes it will synchronize later.
-    # Did NIM get some NTP servers from DHCP? Otherwise use default.
-    # If DHCP isn't done we don't get a server here. So we recheck
-    # at the end of device-steps.sh
-    NTPSERVER=$(get_ntp_server)
-    if [ -f /usr/sbin/ntpd ]; then
-        # Run ntpd to keep it in sync. Allow a large initial jump in case clock
-        # had drifted more than 1000 seconds while the device was powered off
-        echo "$(date -Ins -u) ntpd -g -p $NTPSERVER"
-        /usr/sbin/ntpd -g -p "$NTPSERVER"
-        ret_code=$?
-        echo "$(date -Ins -u) ntpd: $ret_code"
-        # Add ndpd to watchdog
-        touch "$WATCHDOG_PID/ntpd.pid"
-    else
-        echo "$(date -Ins -u) No ntpd"
-    fi
+    # NTP disabled for testing
+    echo "$(date -Ins -u) No ntpd"
 fi
 if [ ! -s "$DEVICE_CERT_NAME" ]; then
     echo "$(date -Ins -u) Generating a device key pair and self-signed cert (using TPM if available)"
@@ -402,23 +327,5 @@ echo "$(date -Ins -u) Done starting EVE version: $(cat /run/eve-release)"
 # and dump any diag information
 while true; do
     access_usb
-    # Check if NTP server changed
-    # Note that this really belongs in a separate ntpd container
-    ns=$(get_ntp_server)
-    if [ -n "$ns" ] && [ "$ns" != "$NTPSERVER" ] && [ -f /run/ntpd.pid ]; then
-        echo "$(date -Ins -u) NTP server changed from $NTPSERVER to $ns"
-        NTPSERVER="$ns"
-        ntpd_pid="$(cat /run/ntpd.pid)"
-        kill "$ntpd_pid"
-        # Wait for it to go away before restarting
-        while kill -0 "$ntpd_pid"; do
-            echo "$(date -Ins -u) NTP server $ntpd_pid still running"
-            sleep 3
-        done
-        echo "$(date -Ins -u) ntpd -g -p $NTPSERVER"
-        /usr/sbin/ntpd -g -p "$NTPSERVER"
-        ret_code=$?
-        echo "$(date -Ins -u) ntpd: $ret_code"
-    fi
     sleep 300
 done
