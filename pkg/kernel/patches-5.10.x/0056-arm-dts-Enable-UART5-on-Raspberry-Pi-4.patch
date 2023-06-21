@@ -1,0 +1,41 @@
+From 26497623aa093eefb7a8708cefd974988090f667 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=AA=20de=20Souza=20Pinto?= <rene@renesp.com.br>
+Date: Wed, 21 Jun 2023 09:32:04 +0200
+Subject: [PATCH] arm: dts: Enable UART5 on Raspberry Pi 4
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Renê de Souza Pinto <rene@renesp.com.br>
+---
+ arch/arm/boot/dts/bcm2711-rpi-4-b.dts | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/arch/arm/boot/dts/bcm2711-rpi-4-b.dts b/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
+index 67b9ac899b31..ce90dd0f3c05 100644
+--- a/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
++++ b/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
+@@ -27,6 +27,7 @@ aliases {
+ 		pcie0 = &pcie0;
+ 		serial0 = &uart1;
+ 		serial1 = &uart0;
++		serial2 = &uart5;
+ 	};
+ 
+ 	leds {
+@@ -293,6 +294,12 @@ &uart1 {
+ 	status = "okay";
+ };
+ 
++&uart5 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&uart5_gpio12>;
++	status = "okay";
++};
++
+ &vchiq {
+ 	interrupts = <GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>;
+ };
+-- 
+2.40.1
+
