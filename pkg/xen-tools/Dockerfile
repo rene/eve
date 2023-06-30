@@ -2,8 +2,8 @@
 
 FROM lfedge/eve-uefi:d821658883d6748d8bbf0d6640c62288e3ce8c6f as uefi-build
 
-FROM lfedge/eve-alpine:145f062a40639b6c65efa36bed1c5614b873be52 as runx-build
-ENV BUILD_PKGS mkinitfs gcc musl-dev e2fsprogs
+FROM lfedge/eve-alpine:0f4e313d0d84ac313ea35e966def9ef96f61aafb as runx-build
+ENV BUILD_PKGS mkinitfs gcc musl-dev e2fsprogs chrony
 RUN eve-alpine-deploy.sh
 
 RUN rm -f /sbin/poweroff /etc/mkinitfs/features.d/base.files
