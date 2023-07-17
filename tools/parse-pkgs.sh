@@ -87,6 +87,7 @@ cat <<EOF
 CURDIR=$(pwd)
 ACRN_KERNEL_TAG=${ACRN_KERNEL_TAG}
 NEW_KERNEL_TAG=${NEW_KERNEL_TAG}
+NVIDIA_KERNEL_TAG=${NVIDIA_KERNEL_TAG}
 KERNEL_TAG=${KERNEL_TAG}
 FW_TAG=${FW_TAG}
 XENTOOLS_TAG=${XENTOOLS_TAG}
@@ -141,6 +142,7 @@ fi
 
 KERNEL_TAG=$(linuxkit_tag pkg/kernel)
 NEW_KERNEL_TAG=$(linuxkit_tag pkg/new-kernel)
+NVIDIA_KERNEL_TAG=$(linuxkit_tag pkg/nvidia-kernel)
 ACRN_KERNEL_TAG=$(linuxkit_tag pkg/acrn-kernel)
 FW_TAG=$(linuxkit_tag pkg/fw)
 XENTOOLS_TAG=$(linuxkit_tag pkg/xen-tools)

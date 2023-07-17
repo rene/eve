@@ -1,0 +1,151 @@
+# This file must be kept as much in sync with pkg/new-kernel/Dockerfile as posisble
+# use the same set of packages for simplicity
+ARG BUILD_PKGS_BASE="argp-standalone automake bash bc binutils-dev bison build-base \
+                     diffutils flex git gmp-dev gnupg installkernel kmod elfutils-dev    \
+                     linux-headers libunwind-dev mpc1-dev mpfr-dev ncurses-dev findutils \
+                     openssl-dev patch rsync sed squashfs-tools tar xz xz-dev zlib-dev openssl \
+                     attr-dev autoconf file coreutils libtirpc-dev libtool util-linux-dev python3"
+
+# we use the same image in several places
+ARG EVE_ALPINE_IMAGE=lfedge/eve-alpine:9fb9b9cbf7d90066a70e4704d04a6fe248ff52bb
+
+# hadolint ignore=DL3006
+FROM ${EVE_ALPINE_IMAGE} as kernel-build-base-native
+ARG BUILD_PKGS_BASE
+RUN BUILD_PKGS="${BUILD_PKGS_BASE}" eve-alpine-deploy.sh
+
+# use build platform as a base image for cross-compilation
+# hadolint ignore=DL3006,DL3029
+FROM --platform=${BUILDPLATFORM} ${EVE_ALPINE_IMAGE} as kernel-build-base-cross
+ARG BUILD_PKGS_BASE
+RUN BUILD_PKGS="${BUILD_PKGS_BASE}" eve-alpine-deploy.sh
+
+# hadolint ignore=DL3029
+FROM --platform=${BUILDPLATFORM} lfedge/eve-cross-compilers:2a1d062fce410865e7024a83de327a68e52db26c AS cross-compilers
+
+# will use several packages from target arch and copy them to sysroot
+# hadolint ignore=DL3006
+FROM ${EVE_ALPINE_IMAGE} AS cross-compile-libs
+ENV PKGS musl-dev libgcc
+RUN eve-alpine-deploy.sh
+
+# adjust EVE_TARGET_ARCH for cross-compiler
+FROM kernel-build-base-cross AS kernel-cross-target-amd64
+ENV EVE_TARGET_ARCH=x86_64
+FROM kernel-build-base-cross AS kernel-cross-target-arm64
+ENV EVE_TARGET_ARCH=aarch64
+
+# install cross-compile packages and libs for target
+# hadolint ignore=DL3006
+FROM kernel-cross-target-${TARGETARCH} AS kernel-cross-build-target
+ENV CROSS_COMPILE_ENV="${EVE_TARGET_ARCH}"-alpine-linux-musl-
+COPY --from=cross-compilers /packages /packages
+# hadolint ignore=DL3018
+RUN apk add --no-cache --allow-untrusted -X /packages build-base-"${EVE_TARGET_ARCH}"
+COPY --from=cross-compile-libs /out/ /usr/"${EVE_TARGET_ARCH}"-alpine-linux-musl/
+
+# support cross compile from amd64 and arm64 for now
+FROM kernel-cross-build-target AS kernel-target-arm64-build-amd64
+FROM kernel-cross-build-target AS kernel-target-amd64-build-arm64
+
+# use kernel-build-base-native image as a base for the rest of target and build archs
+FROM kernel-build-base-native AS kernel-target-amd64-build-amd64
+FROM kernel-build-base-native AS kernel-target-arm64-build-arm64
+
+# set versions for arm64
+# hadolint ignore=DL3006
+FROM kernel-target-${TARGETARCH}-build-${BUILDARCH} AS kernel-target-arm64
+ARG KERNEL_VERSION_arm64=5.10.104
+# this has to be specified separately because of dockerfile limitations
+ARG KERNEL_MAJOR=5
+ENV KERNEL_VERSION=${KERNEL_VERSION_arm64}
+ENV KERNEL_MAJOR=${KERNEL_MAJOR}
+ENV KERNEL_ARCH=arm64
+ENV KERNEL_DEFCONFIG=defconfig
+
+# set versions for amd64
+# hadolint ignore=DL3006
+FROM kernel-target-${TARGETARCH}-build-${BUILDARCH} AS kernel-target-amd64
+ARG KERNEL_VERSION_amd64=5.10.186
+# this has to be specified separately because of dockerfile limitations
+ARG KERNEL_MAJOR=5
+ENV KERNEL_VERSION=${KERNEL_VERSION_amd64}
+ENV KERNEL_MAJOR=${KERNEL_MAJOR}
+ENV KERNEL_ARCH=x86
+ENV KERNEL_DEFCONFIG=x86_64_defconfig
+
+# build for all arches
+# hadolint ignore=DL3006
+FROM kernel-target-${TARGETARCH} AS kernel-build
+
+COPY /kernel-nvidia.tar.bz2 /
+#ADD https://github.com/rene/nvidia-jetson-kernel/releases/download/release-0.31/kernel-nvidia.tar.bz2 /kernel-nvidia.tar.bz2
+RUN mkdir /nvidia-kernel && tar -xvjf /kernel-nvidia.tar.bz2 -C /nvidia-kernel
+
+# Make kernel
+WORKDIR /nvidia-kernel
+RUN mkdir -p /out && \
+    cp vmlinuz-5.10.104-linuxkit /out/kernel && \
+    cp System.map-5.10.104-linuxkit /out/System.map
+
+# Modules
+RUN mkdir -p /tmp/kernel-modules && cp -r lib/ /tmp/kernel-modules/
+
+# Device Tree Blobs
+RUN cp -r boot/ /tmp/kernel-modules/
+
+# Out-of-tree, open source modules
+#  * ZFS on Linux
+#ENV ZFS_VERSION=2.1.2
+#ENV ZFS_COMMIT=zfs-${ZFS_VERSION}
+#ENV ZFS_REPO=https://github.com/openzfs/zfs
+#ENV ZFS_PATCH_DIR=/patches-zfs-"${ZFS_VERSION}"
+
+#WORKDIR /tmp/zfs
+
+# hadolint ignore=DL3020
+#ADD ${ZFS_REPO}/tarball/${ZFS_COMMIT} /zfs.tgz
+#RUN tar -zxvf /zfs.tgz --strip-components=1 && \
+#    rm /zfs.tgz
+#RUN set -e; \
+#    if [ ! -d "${ZFS_PATCH_DIR}" ]; then \
+#        echo "No such dir ${ZFS_PATCH_DIR}"; \
+#    else \
+#        for patch in "${ZFS_PATCH_DIR}"/*.patch; do \
+#            echo "Applying $patch"; \
+#            patch -p1 < "$patch"; \
+#        done \
+#    fi
+#RUN ./autogen.sh && \
+#    CROSS_COMPILE="${CROSS_COMPILE_ENV}" ARCH="${KERNEL_ARCH}" ./configure \
+#        --with-linux=/linux \
+#        --host="${EVE_TARGET_ARCH}"-linux-musl --build="${EVE_BUILD_ARCH}"-linux-musl && \
+#    ./scripts/make_gitrev.sh && \
+#    make -C module -j "$(getconf _NPROCESSORS_ONLN)" CROSS_COMPILE="${CROSS_COMPILE_ENV}" ARCH="${KERNEL_ARCH}" && \
+#    make -C module INSTALL_MOD_PATH=/tmp/kernel-modules install
+
+# Out-of-tree, creepy modules
+#WORKDIR /tmp/rtl8821CU
+#ADD https://github.com/brektrou/rtl8821CU/tarball/8c2226a7 /tmp/rtl8821CU.tgz
+#RUN tar -zxvf /tmp/rtl8821CU.tgz  --strip-components=1 && \
+#    rm /tmp/rtl8821CU.tgz
+
+#WORKDIR /linux
+#RUN make -j "$(getconf _NPROCESSORS_ONLN)" CROSS_COMPILE="${CROSS_COMPILE_ENV}" ARCH="${KERNEL_ARCH}" \
+#    -C /tmp/rtl8821CU KSRC=/linux modules && \
+#    install -D -p -m 644 /tmp/rtl8821CU/8821cu.ko $(echo /tmp/kernel-modules/lib/modules/*)/kernel/drivers/net/wireless/realtek/rtl8821cu/8821cu.ko
+
+# Strip at least some of the modules to conserve space
+RUN if [ "${EVE_TARGET_ARCH}" = aarch64 ];then "${CROSS_COMPILE_ENV}strip" --strip-debug `find /tmp/kernel-modules/lib/modules -name \*.ko` ;fi
+
+# Package all the modules up
+RUN ( DVER=$(basename $(find /tmp/kernel-modules/lib/modules/ -mindepth 1 -maxdepth 1)) && \
+      cd /tmp/kernel-modules/lib/modules/$DVER && \
+      rm build source ) && \
+    ( cd /tmp/kernel-modules && tar cf /out/kernel.tar . )
+
+FROM scratch
+ENTRYPOINT []
+CMD []
+WORKDIR /
+COPY --from=kernel-build /out /
