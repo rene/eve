@@ -310,6 +310,25 @@ const qemuNetTemplate = `
   mac = "{{.Mac}}"
   bus = "pci.{{.PCIId}}"
   addr = "0x0"
+
+[object "canbus0"]
+  qom-type = "can-bus"
+[device "can0"]
+  driver = "kvaser_pci"
+  canbus = "canbus0"
+[object "canhost0"]
+  qom-type = "can-host-socketcan"
+  canbus = "canbus0"
+  if = "can0"
+[object "canbus1"]
+  qom-type = "can-bus"
+[device "can1"]
+  driver = "kvaser_pci"
+  canbus = "canbus1"
+[object "canhost1"]
+  qom-type = "can-host-socketcan"
+  canbus = "canbus1"
+  if = "can1"
 `
 
 const qemuPciPassthruTemplate = `
