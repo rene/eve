@@ -29,6 +29,7 @@ import (
 	"github.com/lf-edge/eve/pkg/pillar/agentbase"
 	"github.com/lf-edge/eve/pkg/pillar/agentlog"
 	"github.com/lf-edge/eve/pkg/pillar/base"
+	"github.com/lf-edge/eve/pkg/pillar/canbus"
 	"github.com/lf-edge/eve/pkg/pillar/cas"
 	"github.com/lf-edge/eve/pkg/pillar/cipher"
 	"github.com/lf-edge/eve/pkg/pillar/containerd"
@@ -2818,6 +2819,30 @@ func handlePhysicalIOAdapterListImpl(ctxArg interface{}, key string,
 					}
 					aa.AddOrUpdateIoBundle(log, vfIb)
 				}
+			} else if ib.Type == types.IoVCAN {
+				// Initialize (create and enable) Virtual CAN device
+				vcan, err := canbus.AddVCANLink(ib.Ifname)
+				if err != nil {
+					log.Errorf("Failed to add Virtual CAN interface: %s", err)
+				}
+				err = canbus.LinkSetUp(vcan)
+				if err != nil {
+					log.Errorf("Failed to enable virtual CAN interface: %s", err)
+				}
+			} else if ib.Type == types.IoCAN {
+				// Initialize physical CAN device
+				canIf, err := canbus.GetCANLink(ib.Ifname)
+				if err != nil {
+					log.Errorf("Failed to fetch CAN interface: %s", err)
+				}
+				err = canbus.SetupCAN(canIf, ib.Cbattr)
+				if err != nil {
+					log.Errorf("Failed to setup CAN interface: %s", err)
+				}
+				err = canbus.LinkSetUp(canIf)
+				if err != nil {
+					log.Errorf("Failed to enable CAN interface: %s", err)
+				}
 			}
 		}
 		log.Functionf("handlePhysicalIOAdapterListImpl: initialized to get len %d",
@@ -3003,6 +3028,9 @@ func updatePortAndPciBackIoBundle(ctx *domainContext, ib *types.IoBundle) (chang
 			keepInHost = true
 		}
 		if ib.Type == types.IoNetEthPF {
+			keepInHost = true
+		}
+		if ib.Type == types.IoCAN || ib.Type == types.IoVCAN {
 			keepInHost = true
 		}
 	}
