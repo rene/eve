@@ -703,8 +703,8 @@ ifeq ($(ROOTFS_FORMAT),squash)
 endif
 	$(QUIET): $@: Succeeded
 
-$(GET_DEPS): $(GOBUILDER)
-	@$(DOCKER_GO) "make -C $(GET_DEPS_DIR) " $(CURDIR)
+$(GET_DEPS):
+	@make -C $(GET_DEPS_DIR)
 
 sbom_info:
 	@echo "$(SBOM)"
