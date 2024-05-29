@@ -4,18 +4,28 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strings"
 
+	"github.com/containerd/containerd/platforms"
 	"github.com/linuxkit/linuxkit/src/cmd/linuxkit/moby"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
+	"github.com/moby/buildkit/frontend/dockerfile/shell"
+	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
+)
+
+const (
+	TARGETOS      = "linux"
+	TARGETARCH    = "amd64"
+	TARGETVARIANT = ""
 )
 
 var (
@@ -56,57 +66,63 @@ func parseYMLfile(fileName string) []string {
 	return deps
 }
 
-// Parse Dockerfile and return all packages from FROM command
-func parseDockerfile(f *os.File) []string {
-	var fromsCmd []string
-	result, err := parser.Parse(f)
+func parseDockerfile(f io.Reader) []string {
+	dt, err := io.ReadAll(f)
 	if err != nil {
-		log.Fatalf("parsing %s failed: %+v", f.Name(), err)
+		panic(err)
 	}
 
-	vars := parseVars(result)
-	var next *parser.Node
-	for _, node := range result.AST.Children {
-		if node.Value == "FROM" {
-			next = node.Next
-			if next == nil {
-				break
-			}
-			from := expandVariables(next, vars)
-			fromsCmd = append(fromsCmd, from)
-		}
-	}
-
-	return fromsCmd
-}
-
-// Expand variables from Dockerfile
-func expandVariables(next *parser.Node, vars map[string]string) string {
-	from := next.Value
-	for key, val := range vars {
-		from = strings.ReplaceAll(from, fmt.Sprintf("${%s}", key), val)
-	}
-	return from
-}
-
-// Parse variables from Dockerfile
-func parseVars(result *parser.Result) map[string]string {
-	vars := make(map[string]string)
-	_, metaArgs, err := instructions.Parse(result.AST)
+	dockerfile, err := parser.Parse(bytes.NewReader(dt))
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
+	}
+	stages, metaArgs, err := instructions.Parse(dockerfile.AST)
+	if err != nil {
+		panic(err)
 	}
 
-	for _, argCmd := range metaArgs {
-		if argCmd.Name() != "ARG" {
-			continue
-		}
-		for _, argCmdArg := range argCmd.Args {
-			vars[argCmdArg.Key] = argCmdArg.ValueString()
+	buildPlatform := []ocispecs.Platform{platforms.DefaultSpec()}[0]
+	targetPlatform := ocispecs.Platform{
+		Architecture: TARGETARCH,
+		OS:           TARGETOS,
+		Variant:      TARGETVARIANT,
+	}
+
+	// from github.com/moby/buildkit/frontend/dockerfile/dockerfile2llb/platform.go:getPlatformArgs
+	args := map[string]string{
+		"BUILDPLATFORM":  platforms.Format(buildPlatform),
+		"BUILDOS":        buildPlatform.OS,
+		"BUILDARCH":      buildPlatform.Architecture,
+		"BUILDVARIANT":   buildPlatform.Variant,
+		"TARGETPLATFORM": platforms.Format(targetPlatform),
+		"TARGETOS":       targetPlatform.OS,
+		"TARGETARCH":     targetPlatform.Architecture,
+		"TARGETVARIANT":  targetPlatform.Variant,
+	}
+	for _, ma := range metaArgs {
+		for _, arg := range ma.Args {
+			key := arg.Key
+			val := arg.ValueString()
+			args[key] = val
 		}
 	}
 
-	return vars
+	shlex := shell.NewLex(dockerfile.EscapeToken)
+
+	targetsMap := make(map[string]struct{})
+	for _, st := range stages {
+		name, _, err := shlex.ProcessWordWithMatches(st.BaseName, args)
+		if err != nil {
+			panic(err)
+		}
+		targetsMap[name] = struct{}{}
+	}
+	targets := make([]string, 0)
+	for target := range targetsMap {
+		targets = append(targets, target)
+	}
+	return targets
+
 }
 
 type printer interface {
@@ -209,6 +225,7 @@ func getDeps(dockerfile string) []string {
 	}
 	defer f.Close()
 	ss := parseDockerfile(f)
+
 	return filterPkg(ss)
 }
 
