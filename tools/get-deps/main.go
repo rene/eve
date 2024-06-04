@@ -298,7 +298,7 @@ func main() {
 		if !e.IsDir() {
 			continue
 		}
-		dockerFile := "./pkg/" + e.Name() + "/Dockerfile"
+		dockerFile := filepath.Join("./pkg/", e.Name(), "/Dockerfile")
 		dockerFileIn := dockerFile + ".in"
 		rmDockerfile := false
 
@@ -356,7 +356,7 @@ func main() {
 			for _, e := range ent {
 				if !e.IsDir() {
 					// Process yml file
-					ymlFile := "images/out/" + e.Name()
+					ymlFile := filepath.Join("images/out/", e.Name())
 					depYML := parseYMLfile(ymlFile)
 					depList := filterPkg(depYML)
 					for _, d := range depList {
