@@ -1,0 +1,16 @@
+# linuxkit build template
+#
+# Copyright (c) 2024 Zededa, Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+org: lfedge
+image: eve-nvidia
+config:
+  binds:
+    - /dev:/dev
+    - /opt:/opt
+  capabilities:
+    - all
+  devices:
+    - path: all
+      type: a
