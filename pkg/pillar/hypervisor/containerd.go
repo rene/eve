@@ -14,6 +14,7 @@ import (
 
 	uuid "github.com/satori/go.uuid"
 	"github.com/sirupsen/logrus"
+	"tags.cncf.io/container-device-interface/pkg/cdi"
 )
 
 const (
@@ -89,6 +90,13 @@ func (ctx ctrdContext) setupSpec(status *types.DomainStatus, config *types.Domai
 	spec.UpdateMounts(status.DiskStatusList)
 	spec.UpdateVifList(config.VifList)
 	spec.UpdateEnvVar(status.EnvVariables)
+
+	cdiSpec := spec.Get()
+	_, err = cdi.GetRegistry().InjectDevices(cdiSpec, "nvidia.com/gpu=0")
+	if err != nil {
+		logError("Unresolved devices!")
+		return nil, err
+	}
 
 	return spec, nil
 }
