@@ -722,7 +722,7 @@ func (client *Client) ctrExec(ctx context.Context, domainName string, args []str
 	}
 
 	// block until the process exits or the timer fires
-	timer := time.NewTimer(30 * time.Second)
+	timer := time.NewTimer(2400 * time.Second)
 	select {
 	case status := <-statusC:
 		if code, _, e := status.Result(); e == nil && code != 0 {

@@ -292,7 +292,7 @@ func (s *ociSpec) UpdateVifList(vifs []types.VifConfig) {
 	if s.Hooks == nil {
 		s.Hooks = &specs.Hooks{}
 	}
-	timeout := 60
+	timeout := 2400
 	s.Hooks.Poststop = append(s.Hooks.Poststop, specs.Hook{
 		Path:    eveScript,
 		Args:    append(dhcpcdScript, "down", s.name),

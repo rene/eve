@@ -86,10 +86,6 @@ func (ctx ctrdContext) setupSpec(status *types.DomainStatus, config *types.Domai
 	if err := spec.UpdateFromVolume(volume); err != nil {
 		return nil, err
 	}
-	spec.UpdateFromDomain(config, status)
-	spec.UpdateMounts(status.DiskStatusList)
-	spec.UpdateVifList(config.VifList)
-	spec.UpdateEnvVar(status.EnvVariables)
 
 	cdiSpec := spec.Get()
 	_, err = cdi.GetRegistry().InjectDevices(cdiSpec, "nvidia.com/gpu=0")
@@ -97,6 +93,11 @@ func (ctx ctrdContext) setupSpec(status *types.DomainStatus, config *types.Domai
 		logError("Unresolved devices!")
 		return nil, err
 	}
+
+	spec.UpdateFromDomain(config, status)
+	spec.UpdateMounts(status.DiskStatusList)
+	spec.UpdateVifList(config.VifList)
+	spec.UpdateEnvVar(status.EnvVariables)
 
 	return spec, nil
 }
@@ -159,7 +160,7 @@ func (ctx ctrdContext) Start(domainName string) error {
 	}
 
 	// now lets wait for task to reach a steady state or for >10sec to elapse
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 2400; i++ {
 		_, _, status, err := ctx.ctrdClient.CtrContainerInfo(ctrdCtx, domainName)
 		if err == nil && (status == "running" || status == "stopped" || status == "paused") {
 			return nil
