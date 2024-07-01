@@ -54,6 +54,11 @@ RUN mkdir -p dist && \
     make cmd-nvidia-ctk && cp nvidia-ctk dist/ && \
     make cmd-nvidia-cdi-hook && cp nvidia-cdi-hook dist/
 
+# Build nvfanctrl
+COPY nvfanctrl/ /nvfanctrl
+WORKDIR /nvfanctrl
+RUN make && mkdir -p dist/ && cp nvfanctrl dist/
+
 # Get and extract ldconfig for glibc
 ADD http://ports.ubuntu.com/ubuntu-ports/pool/main/g/glibc/libc-bin_2.31-0ubuntu9.16_arm64.deb /
 RUN mkdir -p /ldconfig-bin && \
@@ -95,6 +100,7 @@ COPY --from=build /cdi-dist/*.yaml /etc/cdi/
 COPY --from=build /rules.d/* /opt/vendor/nvidia/etc/udev/rules.d/
 COPY --from=build /rootfs-dist/ /opt/vendor/nvidia/dist/
 COPY --from=build /ldconfig-bin/* /opt/vendor/nvidia/bin/
+COPY --from=build /nvfanctrl/dist/* /opt/vendor/nvidia/bin/
 COPY --from=build /nvct/dist/* /opt/vendor/nvidia/bin/
 COPY --from=build /nv-init.sh /opt/vendor/nvidia/init.d/
 
