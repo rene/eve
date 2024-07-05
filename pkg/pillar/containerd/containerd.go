@@ -488,11 +488,12 @@ func (client *Client) CtrCreateTask(ctx context.Context, domainName string) (int
 	logger := GetLog()
 
 	io := func(id string) (cio.IO, error) {
+		stdinFile := logger.Path("guest_vm_stdin-" + domainName)
 		stdoutFile := logger.Path("guest_vm-" + domainName)
 		stderrFile := logger.Path("guest_vm_err-" + domainName)
 		return &logio{
 			cio.Config{
-				Stdin:    "/dev/null",
+				Stdin:    stdinFile,
 				Stdout:   stdoutFile,
 				Stderr:   stderrFile,
 				Terminal: false,
