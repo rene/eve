@@ -130,6 +130,8 @@ func (ctx xenContext) Setup(status types.DomainStatus, config types.DomainConfig
 	if err != nil {
 		return logError("failed to load OCI spec for domain %s: %v", status.DomainName, err)
 	}
+	// Add custom QEMU loader for shim VM
+	spec.GrantFullAccess()
 	if err = spec.AddLoader("/containers/services/xen-tools"); err != nil {
 		return logError("failed to add xen hypervisor loader to domain %s: %v", status.DomainName, err)
 	}
