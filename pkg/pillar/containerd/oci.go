@@ -65,6 +65,7 @@ type OCISpec interface {
 	UpdateFromVolume(string) error
 	UpdateMounts([]types.DiskStatus) error
 	UpdateEnvVar(map[string]string)
+	GrantFullAccess()
 }
 
 // NewOciSpec returns a default oci spec from the containerd point of view
@@ -85,16 +86,6 @@ func (client *Client) NewOciSpec(name string, service bool) (OCISpec, error) {
 	if s.Annotations == nil {
 		s.Annotations = map[string]string{}
 	}
-	// default OCI specs have all devices being denied by default,
-	// we flip it back to all allow for now, but later on we may
-	// need to get more fine-grained
-	if s.Linux == nil {
-		s.Linux = &specs.Linux{}
-	}
-	if s.Linux.Resources == nil {
-		s.Linux.Resources = &specs.LinuxResources{}
-	}
-	s.Linux.Resources.Devices = []specs.LinuxDeviceCgroup{{Type: "a", Allow: true, Access: "rwm"}}
 	s.Root.Path = "/"
 	s.service = service
 	return s, nil
@@ -534,4 +525,18 @@ func (s *ociSpec) UpdateEnvVar(envVars map[string]string) {
 			}
 		}
 	}
+}
+
+// Grant full access to file devices
+func (s *ociSpec) GrantFullAccess() {
+	// default OCI specs have all devices being denied by default,
+	// we flip it back to all allow for now, but later on we may
+	// need to get more fine-grained
+	if s.Linux == nil {
+		s.Linux = &specs.Linux{}
+	}
+	if s.Linux.Resources == nil {
+		s.Linux.Resources = &specs.LinuxResources{}
+	}
+	s.Linux.Resources.Devices = []specs.LinuxDeviceCgroup{{Type: "a", Allow: true, Access: "rwm"}}
 }
