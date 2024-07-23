@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile-upstream:1.5.0-rc2-labs
+
+# Copyright (c) 2024 Zededa, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+FROM lfedge/eve-alpine:1f7685f95a475c6bbe682f0b976f12180b6c8726 as build
+ENV PKGS udev
+RUN eve-alpine-deploy.sh
+
+COPY etc/init.d/008-udevd /out/etc/init.d/
+
+# Remove default rules from udev (we don't support many groups from these rules)
+RUN rm /out/lib/udev/rules.d/*
+
+FROM scratch
+COPY --from=build /out/ /
+
+ENTRYPOINT []
+CMD []
