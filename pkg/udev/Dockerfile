@@ -14,7 +14,14 @@ COPY etc/udev/rules.d/* /out/etc/udev/rules.d/
 RUN rm /out/lib/udev/rules.d/*
 
 FROM scratch
-COPY --from=build /out/ /
+COPY --from=build /out/bin/udevadm /bin/
+COPY --from=build /out/sbin/udevd /sbin/
+COPY --from=build /out/lib/libkmod* /lib/
+COPY --from=build /out/lib/libudev* /lib/
+COPY --from=build /out/lib/udev /lib/udev
+COPY --from=build /out/etc/udev /etc/udev
+COPY --from=build /out/etc/init.d/*  /etc/init.d/
+COPY --from=build /out/usr/lib/libzstd* /usr/lib/
 
 ENTRYPOINT []
 CMD []
