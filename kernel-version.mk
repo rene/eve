@@ -43,7 +43,7 @@ else ifeq ($(ZARCH), arm64)
         KERNEL_VERSION=v5.10.192
     else
         KERNEL_FLAVOR=generic
-        KERNEL_VERSION=v6.1.106
+        KERNEL_VERSION=v6.1.38
     endif
 else ifeq ($(ZARCH), riscv64)
     KERNEL_VERSION=v6.1.106
