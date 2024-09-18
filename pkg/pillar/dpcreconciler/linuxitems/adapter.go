@@ -304,6 +304,15 @@ func (c *AdapterConfigurator) Delete(ctx context.Context, item depgraph.Item) er
 		c.Log.Error(err)
 		return err
 	}
+	// Make sure the ethernet interface is DOWN before renaming
+	// and changing the MAC address, otherwise we get error
+	// `Device or resource busy`.
+	if err := netlink.LinkSetDown(kernLink); err != nil {
+		err = fmt.Errorf("netlink.LinkSetUp(%s) failed: %v",
+			kernIfname, err)
+		c.Log.Error(err)
+		return err
+	}
 	// Toggle MAC address of the interface back to the original.
 	altMacAddr := c.alternativeMAC(kernLink.Attrs().HardwareAddr)
 	if len(altMacAddr) != 0 {
