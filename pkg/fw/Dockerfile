@@ -12,8 +12,8 @@ RUN mkdir /wireless-regdb &&\
     cp /wireless-regdb/regulatory.db /wireless-regdb/regulatory.db.p7s /lib/firmware
 
 # Nvidia Firmware
-ENV NVIDIA_FW_TEGRA nvidia-l4t-firmware_35.5.0-20240219203809_arm64.deb
-ADD https://repo.download.nvidia.com/jetson/t194/pool/main/n/nvidia-l4t-firmware/${NVIDIA_FW_TEGRA} /${NVIDIA_FW_TEGA}
+ENV NVIDIA_FW_TEGRA nvidia-l4t-firmware_36.3.0-20240506102626_arm64.deb
+ADD https://repo.download.nvidia.com/jetson/t234/pool/main/n/nvidia-l4t-firmware/${NVIDIA_FW_TEGRA} /${NVIDIA_FW_TEGA}
 RUN mkdir -p /nvidia-firmware && \
     cd /nvidia-firmware ;\
     ar x ../"${NVIDIA_FW_TEGRA}" ;\
@@ -145,24 +145,24 @@ COPY --from=build /lib/firmware/ti-connectivity /lib/firmware/ti-connectivity
 # to keep compatibility with the current layout
 RUN cp --symbolic-link /lib/firmware/brcm/* /lib/firmware
 # Nvidia Jetson Nano + Xavier NX
+COPY --from=build /nvidia-firmware/lib/firmware/brcm /lib/firmware/brcm
+COPY --from=build /nvidia-firmware/lib/firmware/nvidia /lib/firmware/nvidia
+COPY --from=build /nvidia-firmware/lib/firmware/tegra19x /lib/firmware/tegra19x
+COPY --from=build /nvidia-firmware/lib/firmware/tegra23x /lib/firmware/tegra23x
 COPY --from=build /nvidia-firmware/lib/firmware/bcm4354.hcd /lib/firmware/
-COPY --from=build /nvidia-firmware/lib/firmware/brcm/fw_bcmdhd.bin /lib/firmware/brcm/
-COPY --from=build /nvidia-firmware/lib/firmware/brcm/nvram.txt /lib/firmware/brcm/
 COPY --from=build /nvidia-firmware/lib/firmware/display-t234-dce.bin /lib/firmware/
 COPY --from=build /nvidia-firmware/lib/firmware/nv-BT-Version /lib/firmware/
 COPY --from=build /nvidia-firmware/lib/firmware/nvhost_nvdla010.fw /lib/firmware/
 COPY --from=build /nvidia-firmware/lib/firmware/nvhost_nvdla020.fw /lib/firmware/
+COPY --from=build /nvidia-firmware/lib/firmware/nvhost_nvdla030.fw /lib/firmware/
 COPY --from=build /nvidia-firmware/lib/firmware/nvhost_ofa012.fw /lib/firmware/
 COPY --from=build /nvidia-firmware/lib/firmware/nvhost_vic042.fw /lib/firmware/
 COPY --from=build /nvidia-firmware/lib/firmware/nvpva_010.fw /lib/firmware/
 COPY --from=build /nvidia-firmware/lib/firmware/nvpva_020.fw /lib/firmware/
 COPY --from=build /nvidia-firmware/lib/firmware/nv-WIFI-Version /lib/firmware/
-COPY --from=build /nvidia-firmware/lib/firmware/nvidia/tegra194 /lib/firmware/nvidia/tegra194
-COPY --from=build /nvidia-firmware/lib/firmware/ga10b /lib/firmware/ga10b
-COPY --from=build /nvidia-firmware/lib/firmware/gv11b /lib/firmware/gv11b
-COPY --from=build /nvidia-firmware/lib/firmware/tegra19x /lib/firmware/tegra19x
-COPY --from=build /nvidia-firmware/lib/firmware/tegra23x /lib/firmware/tegra23x
-COPY --from=build /lib/firmware/nvidia/tegra210 /lib/firmware/nvidia/tegra210
+COPY --from=build /nvidia-firmware/lib/firmware/rtl8822cu_config /lib/firmware/
+COPY --from=build /nvidia-firmware/lib/firmware/rtl8822cu_fw /lib/firmware/
+COPY --from=build /nvidia-firmware/lib/firmware/rtl8822_setting.bin /lib/firmware/
 COPY --from=build /rtw88/*.bin /lib/firmware/rtw88/
 # Intel ICE firmware.
 COPY --from=build /lib/firmware/intel/ice /lib/firmware/intel/ice
