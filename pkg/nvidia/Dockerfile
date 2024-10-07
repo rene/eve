@@ -19,7 +19,7 @@ RUN git config --global user.email 'builder@projecteve.dev' && \
     git config --global user.name 'Project EVE'
 
 # Jetson Linux tarball
-ENV JETSON_LINUX=https://developer.nvidia.com/downloads/embedded/l4t/r35_release_v5.0/release/jetson_linux_r35.5.0_aarch64.tbz2
+ENV JETSON_LINUX=https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v3.0/release/jetson_linux_r36.3.0_aarch64.tbz2
 
 ADD ${JETSON_LINUX} /jetson_linux.tbz2
 
