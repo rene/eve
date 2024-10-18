@@ -16,11 +16,15 @@ mkdir -p /run/udev/rules.d/
 cp "${VENDOR}"/etc/udev/rules.d/* /run/udev/rules.d/
 # Reload rules and trigger udev events
 udevadm control --reload
-udevadm info -a -p /devices/gpu.0
+udevadm info -a -p /devices/platform/gpu.0
 
 # Load modules
 modprobe nvidia
 modprobe nvidia_modeset
+modprobe nvethernet
+modprobe nvpps
+modprobe ina3221
+modprobe r8168
 
 # Enforces add for framebuffer and nvidia modules, so we have /dev/fb0 and
 # /dev/nvidiactrl even when there is no monitor connected to the display
