@@ -1,0 +1,5 @@
+image: eve-fw
+org: lfedge
+tag: "{{.Hash}}-nvidia-jp6"
+buildArgs:
+  - PLATFORM=nvidia-jp6
