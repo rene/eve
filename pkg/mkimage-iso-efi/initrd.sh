@@ -22,6 +22,15 @@ root_param=$(cat /proc/cmdline | tr ' ' '\n' | grep '^root=' | head -n 1)
 # remove the leading "root="  to get the actual value
 root_value=${root_param#root=}
 
+# Check for rootdelay
+# shellcheck disable=SC2002
+root_delay=$(cat /proc/cmdline | tr ' ' '\n' | grep '^rootdelay=' | head -n 1)
+if [ -z "$root_delay" ]; then
+    root_delay=1
+else
+    root_delay=$(echo "$root_delay" | cut -d"=" -f2)
+fi
+
 # Check if root_value is set
 if [ -z "$root_value" ]; then
     echo "Error: No root= parameter found in /proc/cmdline"
@@ -30,40 +39,49 @@ fi
 
 echo "searching for root filesystem with value: $root_value"
 
-rootdev=""
-blkid=$(blkid)
+while [ "$root_delay" -gt 0 ]; do
+    rootdev=""
+    blkid=$(blkid)
 
-# Determine if the root_value is a LABEL, UUID, or direct device path
-while read -r line; do
-    case "$root_value" in
-        LABEL=*)
-            label=${root_value#LABEL=}
-            if echo "$line" | grep -q "LABEL=\"$label\""; then
-                rootdev=$(echo "$line" | cut -d: -f1)
-                break
-            fi
-            ;;
-        UUID=*)
-            uuid=${root_value#UUID=}
-            if echo "$line" | grep -q "UUID=\"$uuid\""; then
-                rootdev=$(echo "$line" | cut -d: -f1)
-                break
-            fi
-            ;;
-        PARTUUID=*)
-            partuuid=${root_value#PARTUUID=}
-            if echo "$line" | grep -q "PARTUUID=\"$partuuid\""; then
-                rootdev=$(echo "$line" | cut -d: -f1)
-                break
-            fi
-            ;;
-        *)
-            rootdev="$root_value"
-            ;;
-    esac
-done <<EOF
+    # Determine if the root_value is a LABEL, UUID, or direct device path
+    while read -r line; do
+        case "$root_value" in
+            LABEL=*)
+                label=${root_value#LABEL=}
+                if echo "$line" | grep -q "LABEL=\"$label\""; then
+                    rootdev=$(echo "$line" | cut -d: -f1)
+                    break
+                fi
+                ;;
+            UUID=*)
+                uuid=${root_value#UUID=}
+                if echo "$line" | grep -q "UUID=\"$uuid\""; then
+                    rootdev=$(echo "$line" | cut -d: -f1)
+                    break
+                fi
+                ;;
+            PARTUUID=*)
+                partuuid=${root_value#PARTUUID=}
+                if echo "$line" | grep -q "PARTUUID=\"$partuuid\""; then
+                    rootdev=$(echo "$line" | cut -d: -f1)
+                    break
+                fi
+                ;;
+            *)
+                rootdev="$root_value"
+                ;;
+        esac
+    done <<EOF
 $blkid
 EOF
+if [ -n "$rootdev" ]; then
+    break
+else
+    echo "Waiting for root device..."
+    sleep 1
+    root_delay=$((root_delay - 1))
+fi
+done
 
 # If root filesystem is found, mount it
 if [ -n "$rootdev" ]; then
