@@ -8,6 +8,8 @@
 
 package domainmgr
 
+// Test
+
 import (
 	"bufio"
 	"bytes"
