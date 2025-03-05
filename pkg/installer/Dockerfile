@@ -2,6 +2,9 @@
 # Copyright (c) 2024 Zededa, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
+# make-raw script
+FROM lfedge/eve-mkimage-raw-efi:f00d293503de722fa2d136cb00c2dfe8db8a2f95 AS raw
+
 # Interactive mode for the installer
 FROM --platform=$BUILDPLATFORM lfedge/eve-rust:1.80.1 AS rust-host
 ARG TARGETARCH
@@ -93,6 +96,8 @@ COPY --from=rust /usr/local/my-installer/sbom.spdx.json /out/sbin/sbom.spdx.json
 
 FROM scratch
 COPY --from=build /out/ /
+COPY --from=raw /make-raw /mkimage/make-raw
+COPY --from=raw /UsbInvocationScript.txt /
 COPY install parse-installer-conf.sh spec.sh verify verifytpm.sh /
 ENV RUST_BACKTRACE full
 

@@ -27,7 +27,6 @@ This expects to be run with full capabilities, and the following mounts, set in 
 
 In addition, it expects to have the following:
 
-* `mkimage-raw-efi` image available read-only at `/mkimage`. This is set in the [installer.yml](../../images/installer.yml.in) file. It uses it to launch `make-raw`, in order to write to the target installation disk.
 * `/bits/rootfs.img` - the rootfs image to install. This is set in the [installer.yml](../../images/installer.yml.in) file.
 * `/bits/persist.img` - the persist image to install. This is set in the [installer.yml](../../images/installer.yml.in) file.
 
