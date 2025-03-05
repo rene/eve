@@ -81,7 +81,17 @@ done
 if [ -n "$rootdev" ]; then
     echo "found root filesystem: $rootdev, switching"
     mount "$rootdev" /newroot
-    exec switch_root /newroot /sbin/init
+    # Now, check for the installer rootfs squashfs image
+    ROOTFSIMG=/newroot/rootfs_installer.img
+    if [ -e "$ROOTFSIMG" ]; then
+        # Mount the image and call switch_root
+        mkdir -p /installer_root
+        mount "$ROOTFSIMG" /installer_root
+        exec switch_root /installer_root /sbin/init
+    else
+        echo "$ROOTFSIMG image not found!"
+        exec sh
+    fi
 else
     echo "Root filesystem not found!"
     exec sh
