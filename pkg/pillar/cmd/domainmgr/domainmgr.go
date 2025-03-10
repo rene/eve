@@ -8,6 +8,8 @@
 
 package domainmgr
 
+// Test GHA
+
 import (
 	"bufio"
 	"bytes"
