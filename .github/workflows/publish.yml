@@ -90,8 +90,9 @@ jobs:
                 # the docker cache produced by the build exhausting
                 # disk space. So the following can't hurt before we
                 # retry:
-                docker rmi -f `docker image ls -q` || :
-                docker system prune -f || :
+                #docker rmi -f `docker image ls -q` || :
+                #docker system prune -f || :
+                echo "NOT cleaning up"
              fi
           done
           if [ -z "$SUCCESS" ]; then echo "::error::failed to build and push packages" && exit 1; fi
@@ -106,8 +107,8 @@ jobs:
       - name: Clean
         run: |
           make clean
-          docker system prune -f -a
-          rm -rf ~/.linuxkit
+          #docker system prune -f -a
+          #rm -rf ~/.linuxkit
 
   # eve composition can run as a separate job, even on a separate runner, because the packages job
   # published everything. Which means all images are already on the OCI registry.
