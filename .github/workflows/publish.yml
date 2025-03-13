@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: X64
             arch: amd64
             platform: "generic"
           - os: ARM64
@@ -34,7 +34,7 @@ jobs:
           - os: ARM64
             arch: arm64
             platform: "nvidia-jp6"
-          - os: ubuntu-latest
+          - os: X64
             arch: riscv64
             platform: "generic"
     steps:
