@@ -52,6 +52,6 @@ runs:
     - name: Clean
       run: |
         make clean
-        docker system prune -f -a
-        rm -rf ~/.linuxkit
+        #docker system prune -f -a
+        #rm -rf ~/.linuxkit
       shell: bash
