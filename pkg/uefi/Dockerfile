@@ -35,7 +35,7 @@ ENV EDK_COMMIT 4dfdca63a93497203f197ec98ba20e2327e4afe4
 FROM build-${TARGETARCH}-versions AS build-edk2
 
 WORKDIR /edk2
-ADD --keep-git-dir=true https://github.com/tianocore/edk2.git#${EDK_COMMIT} /edk2
+ADD --keep-git-dir=true https://gitlab.com/tianocore/edk2.git#${EDK_COMMIT} /edk2
 
 RUN set -e ; [ ! -d /edk2 ] ||  [ ! -d /edk2-patches/${EDK_VERSION} ] || \
         for patch in /edk2-patches/${EDK_VERSION}/*.patch; do \
