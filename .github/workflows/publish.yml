@@ -115,23 +115,27 @@ jobs:
   eve:
     if: github.event.repository.full_name == 'rene/eve'
     needs: packages
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         arch: [arm64, amd64]
         hv: [kvm, xen]
         platform: ["generic"]
+        os: [X64]
         include:
           - arch: riscv64
             hv: mini
             platform: "generic"
+            os: X64
           - arch: arm64
             hv: kvm
             platform: "nvidia-jp5"
+            os: ARM64
           - arch: arm64
             hv: kvm
             platform: "nvidia-jp6"
+            os: ARM64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -150,7 +154,7 @@ jobs:
 
   manifest:
     if: github.event.repository.full_name == 'rene/eve'
-    runs-on: ubuntu-latest
+    runs-on: X64
     needs: packages
     steps:
       - uses: actions/checkout@v4
