@@ -158,7 +158,7 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/run-make
         with:
-          command: "V=1 LINUXKIT_PKG_TARGET=manifest pkgs"
+          command: "V=1 REGISTRY=localhost:5001 LINUXKIT_PKG_TARGET=manifest pkgs"
           dockerhub-token: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
           dockerhub-account: ${{ secrets.RELEASE_DOCKERHUB_ACCOUNT }}
 
