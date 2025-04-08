@@ -24,6 +24,11 @@ jobs:
           path: src
           fetch-depth: 0
 
+      - name: Setup dependencies
+        run: |
+          sudo apt -y update
+          sudo apt -y install libzfs4linux libzfslinux-dev
+
       - name: Yetus
         uses: apache/yetus-test-patch-action@0.15.1
         with:
