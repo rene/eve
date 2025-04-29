@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: X64
             arch: amd64
             platform: "generic"
           - os: buildjet-4vcpu-ubuntu-2204-arm
@@ -34,7 +34,7 @@ jobs:
           - os: buildjet-4vcpu-ubuntu-2204-arm
             arch: arm64
             platform: "nvidia-jp6"
-          - os: ubuntu-latest
+          - os: X64
             arch: riscv64
             platform: "generic"
     steps:
@@ -115,7 +115,7 @@ jobs:
   eve:
     if: github.event.repository.full_name == 'rene/eve'
     needs: packages
-    runs-on: ubuntu-latest
+    runs-on: X64
     strategy:
       fail-fast: false
       matrix:
@@ -150,7 +150,7 @@ jobs:
 
   manifest:
     if: github.event.repository.full_name == 'rene/eve'
-    runs-on: ubuntu-latest
+    runs-on: X64
     needs: packages
     steps:
       - uses: actions/checkout@v4
