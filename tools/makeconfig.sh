@@ -5,7 +5,7 @@
 #
 EVE="$(cd "$(dirname "$0")" && pwd)/../"
 PATH="$EVE/build-tools/bin:$PATH"
-MKCONFIG_TAG="$(linuxkit pkg show-tag "$EVE/pkg/mkconf")"
+MKCONFIG_TAG="$(linuxkit pkg ${LINUXKIT_ORG_TARGET} show-tag "$EVE/pkg/mkconf")"
 IMAGE="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 ROOTFS_VERSION="$2"
 
