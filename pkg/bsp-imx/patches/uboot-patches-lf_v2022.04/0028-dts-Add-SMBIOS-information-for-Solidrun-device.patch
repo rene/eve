@@ -1,0 +1,47 @@
+From 21927955d2b37bb5ec3a03f9625dcdfe35896b43 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=AA=20de=20Souza=20Pinto?= <rene@renesp.com.br>
+Date: Tue, 6 May 2025 10:58:46 +0200
+Subject: [PATCH] dts: Add SMBIOS information for Solidrun device
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add SMBIOS device tree node for IIOT-200-8M Solidrun device.
+
+Signed-off-by: Renê de Souza Pinto <rene@renesp.com.br>
+---
+ arch/arm/dts/imx8mp-solidrun.dts | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/arch/arm/dts/imx8mp-solidrun.dts b/arch/arm/dts/imx8mp-solidrun.dts
+index 9404bc48d26..b2222e83bd5 100644
+--- a/arch/arm/dts/imx8mp-solidrun.dts
++++ b/arch/arm/dts/imx8mp-solidrun.dts
+@@ -32,6 +32,24 @@
+ 		stdout-path = &uart2;
+ 	};
+ 
++	sysinfo {
++		compatible = "u-boot,sysinfo-smbios";
++		smbios {
++			system {
++				manufacturer = "solidrun";
++				product = "IIOT-200-8M";
++			};
++			baseboard {
++				manufacturer = "solidrun";
++				product = "IIOT-200-8M";
++			};
++			chassis {
++				manufacturer = "solidrun";
++				product = "IIOT-200-8M";
++			};
++		};
++	};
++
+ 	memory@40000000 {
+ 		device_type = "memory";
+ 		reg = <0x0 0x40000000 0 0xc0000000>,
+-- 
+2.47.2
+
