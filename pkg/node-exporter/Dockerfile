@@ -8,4 +8,6 @@ LABEL org.opencontainers.image.description="Prometheus Node Exporter with EVE sp
 LABEL org.opencontainers.image.authors="Zededa, Inc."
 LABEL org.opencontainers.image.license="Apache-2.0"
 
+# REBUILD 3
+
 CMD ["--path.procfs=/hostfs/proc", "--path.sysfs=/hostfs/sys", "--path.rootfs=/hostfs", "--collector.cgroups", "--collector.processes"]

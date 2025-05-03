@@ -9,5 +9,7 @@ RUN mkdir -p /out/conf/raw
 FROM scratch
 COPY --from=build /out /
 
+# REBUILD
+
 WORKDIR /
 ENTRYPOINT [ "/make-config" ]

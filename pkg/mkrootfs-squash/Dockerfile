@@ -6,6 +6,8 @@ RUN eve-alpine-deploy.sh
 
 COPY . /out/
 
+# REBUILD 3
+
 FROM scratch
 COPY --from=build /out/ /
 ENTRYPOINT [ "/make-rootfs" ]

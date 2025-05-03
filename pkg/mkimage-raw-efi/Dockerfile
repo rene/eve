@@ -43,6 +43,8 @@ RUN if ! grep -q -w /sbin/nlplug-findfs  /etc/mkinitfs/features.d/base.files; th
 RUN echo /bin/grep >> /etc/mkinitfs/features.d/base.files
 RUN mkinitfs -n -o /out/initrd.img
 
+# REBUILD
+
 FROM scratch
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 
