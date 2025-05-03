@@ -25,10 +25,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: X64
             arch: amd64
             platform: "generic"
-          - os: ubuntu-latest
+          - os: X64
             arch: riscv64
             platform: "generic"
     steps:
@@ -182,7 +182,7 @@ jobs:
   eve:
     if: github.event.repository.full_name == 'rene/eve'
     needs: [packages-non-arm, packages-arm]
-    runs-on: ubuntu-latest
+    runs-on: X64
     strategy:
       fail-fast: false
       matrix:
@@ -225,7 +225,7 @@ jobs:
   manifest:
     if: github.event.repository.full_name == 'rene/eve'
     needs: [packages-non-arm, packages-arm]
-    runs-on: ubuntu-latest
+    runs-on: X64
     steps:
       - uses: actions/checkout@v4
         with:
