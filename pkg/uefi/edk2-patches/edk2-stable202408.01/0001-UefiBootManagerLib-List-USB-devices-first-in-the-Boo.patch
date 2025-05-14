@@ -1,0 +1,51 @@
+From d2312338f0a3ebe5eead689a92c95e0dbf6cc89c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=AA=20de=20Souza=20Pinto?= <rene@renesp.com.br>
+Date: Wed, 14 May 2025 15:25:56 +0200
+Subject: [PATCH] UefiBootManagerLib: List USB devices first in the Boot List
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Put USB devices on top of the list of active bootable devices.
+
+Signed-off-by: Renê de Souza Pinto <rene@renesp.com.br>
+---
+ .../Library/UefiBootManagerLib/BmLoadOption.c     | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/MdeModulePkg/Library/UefiBootManagerLib/BmLoadOption.c b/MdeModulePkg/Library/UefiBootManagerLib/BmLoadOption.c
+index 83a2f893e4..d2f788aa3d 100644
+--- a/MdeModulePkg/Library/UefiBootManagerLib/BmLoadOption.c
++++ b/MdeModulePkg/Library/UefiBootManagerLib/BmLoadOption.c
+@@ -1089,6 +1089,8 @@ EfiBootManagerGetLoadOptions (
+   CHAR16                         OptionName[BM_OPTION_NAME_LEN];
+   UINT16                         OptionNumber;
+   BM_COLLECT_LOAD_OPTIONS_PARAM  Param;
++  UINTN                         UsbPos;
++  EFI_BOOT_MANAGER_LOAD_OPTION  aux;
+ 
+   *OptionCount = 0;
+   Options      = NULL;
+@@ -1131,6 +1133,19 @@ EfiBootManagerGetLoadOptions (
+       ASSERT (Options != NULL);
+       *OptionCount = OptionIndex;
+     }
++
++    // Search for USB devices and move them to the top of the list
++    OptionIndex = 0;
++    UsbPos = 0;
++    for (Index = 0; Index < *OptionCount; Index++) {
++        if (StrStr(Options[Index].Description, L"USB") != NULL && Index > 0) {
++            aux = Options[UsbPos];
++            Options[UsbPos] = Options[Index];
++            Options[Index]  = aux;
++            UsbPos++;
++        }
++    }
++
+   } else if (LoadOptionType == LoadOptionTypePlatformRecovery) {
+     Param.OptionType  = LoadOptionTypePlatformRecovery;
+     Param.Options     = NULL;
+-- 
+2.47.2
+
