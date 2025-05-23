@@ -96,13 +96,13 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          - os: buildjet-4vcpu-ubuntu-2204-arm
+          - os: X64
             arch: arm64
             platform: "generic"
-          - os: buildjet-4vcpu-ubuntu-2204-arm
+          - os: X64
             arch: arm64
             platform: "nvidia-jp5"
-          - os: buildjet-4vcpu-ubuntu-2204-arm
+          - os: X64
             arch: arm64
             platform: "nvidia-jp6"
     steps:
