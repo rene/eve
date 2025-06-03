@@ -144,26 +144,26 @@ jobs:
           username: ${{ secrets.RELEASE_DOCKERHUB_ACCOUNT }}
           password: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
 
-      - name: Build packages
-        run: |
-          SUCCESS=
+#      - name: Build packages
+#        run: |
+#          SUCCESS=
           # sadly, our build sometimes times out on network access
           # and running out of disk space: re-trying for 3 times
-          for i in 1 2 3; do
-             if make -e V=1 REGISTRY=10.208.13.132 ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=push PRUNE=1 pkgs; then
-                SUCCESS=true
-                break
-             else
+#          for i in 1 2 3; do
+#             if make -e V=1 REGISTRY=10.208.13.132 ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=push PRUNE=1 pkgs; then
+#                SUCCESS=true
+#                break
+#             else
                 # the most likely reason for 'make pkgs' to fail is
                 # the docker cache produced by the build exhausting
                 # disk space. So the following can't hurt before we
                 # retry:
-                docker rmi -f `docker image ls -q` || :
-                docker system prune -f -a || :
-                docker rm -f $(docker ps -aq) && docker volume rm -f $(docker volume ls -q) || :
-             fi
-          done
-          if [ -z "$SUCCESS" ]; then echo "::error::failed to build and push packages" && exit 1; fi
+#                docker rmi -f `docker image ls -q` || :
+#                docker system prune -f -a || :
+#                docker rm -f $(docker ps -aq) && docker volume rm -f $(docker volume ls -q) || :
+#             fi
+#          done
+#          if [ -z "$SUCCESS" ]; then echo "::error::failed to build and push packages" && exit 1; fi
       - name: Post package report
         run: |
           echo Disk usage
@@ -205,24 +205,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ./.github/actions/run-make
-        with:
-          command: "V=1 REGISTRY=10.208.13.132 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=push eve"
-          dockerhub-token: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
-          dockerhub-account: ${{ secrets.RELEASE_DOCKERHUB_ACCOUNT }}
-      - uses: ./.github/actions/run-make
-        if: matrix.arch != 'riscv64'
-        with:
-          command: "V=1 REGISTRY=10.208.13.132 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=push sbom collected_sources compare_sbom_collected_sources publish_sources"
-          dockerhub-token: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
-          dockerhub-account: ${{ secrets.RELEASE_DOCKERHUB_ACCOUNT }}
-      - name: Clean
-        if: ${{ always() }}
-        run: |
-          make clean || :
-          docker system prune -f -a || :
-          docker rm -f $(docker ps -aq) && docker volume rm -f $(docker volume ls -q) || :
-          rm -rf ~/.linuxkit || :
+#      - uses: ./.github/actions/run-make
+#        with:
+#          command: "V=1 REGISTRY=10.208.13.132 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=push eve"
+#          dockerhub-token: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
+#          dockerhub-account: ${{ secrets.RELEASE_DOCKERHUB_ACCOUNT }}
+#      - uses: ./.github/actions/run-make
+#        if: matrix.arch != 'riscv64'
+#        with:
+#          command: "V=1 REGISTRY=10.208.13.132 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=push sbom collected_sources compare_sbom_collected_sources publish_sources"
+#          dockerhub-token: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
+#          dockerhub-account: ${{ secrets.RELEASE_DOCKERHUB_ACCOUNT }}
+#      - name: Clean
+#        if: ${{ always() }}
+#        run: |
+#          make clean || :
+#          docker system prune -f -a || :
+#          docker rm -f $(docker ps -aq) && docker volume rm -f $(docker volume ls -q) || :
+#          rm -rf ~/.linuxkit || :
 
   manifest:
     if: github.event.repository.full_name == 'rene/eve'
