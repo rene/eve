@@ -554,6 +554,7 @@ func getVersion(log *base.LogObject, part string, verFilename string) (string, e
 		// XXX hardcoded file system type squashfs
 		mountFlags := MountFlagRDONLY
 		err = zbootMount(devname, target, "squashfs", mountFlags, "")
+		log.Errorf("DEBUG: mountFlags: %d\n", mountFlags)
 		if err != nil {
 			errStr := fmt.Sprintf("Mount of %s failed: %s", devname, err)
 			log.Errorln(errStr)

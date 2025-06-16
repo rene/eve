@@ -14,7 +14,7 @@ func lookupContentTreeStatus(ctx *baseOsMgrContext, key string) *types.ContentTr
 	sub := ctx.subContentTreeStatus
 	st, _ := sub.Get(key)
 	if st == nil {
-		log.Functionf("lookupContentTreeStatus(%s) not found", key)
+		log.Errorf("lookupContentTreeStatus(%s) not found", key)
 		return nil
 	}
 	status := st.(types.ContentTreeStatus)
@@ -41,11 +41,11 @@ func handleContentTreeStatusImpl(ctxArg interface{}, key string,
 
 	status := statusArg.(types.ContentTreeStatus)
 	ctx := ctxArg.(*baseOsMgrContext)
-	log.Functionf("handleContentTreeStatusImpl: key:%s, name:%s",
+	log.Errorf("handleContentTreeStatusImpl: key:%s, name:%s",
 		key, status.DisplayName)
 	baseOSStatuses := lookupBaseOsStatusesByContentID(ctx, status.ContentID.String())
 	for _, el := range baseOSStatuses {
 		baseOsHandleStatusUpdateUUID(ctx, el.Key())
 	}
-	log.Functionf("handleContentTreeStatusImpl done for %s", key)
+	log.Errorf("handleContentTreeStatusImpl done for %s", key)
 }

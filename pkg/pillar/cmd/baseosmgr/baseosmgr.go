@@ -91,7 +91,7 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Functionf("processed onboarded")
+	log.Errorf("processed onboarded")
 
 	// initialize publishing handles
 	initializeSelfPublishHandles(ps, &ctx)
@@ -120,7 +120,7 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 
 	// Pick up debug aka log level before we start real work
 	for !ctx.GCInitialized {
-		log.Functionf("waiting for GCInitialized")
+		log.Errorf("waiting for GCInitialized")
 		select {
 		case change := <-ctx.subGlobalConfig.MsgChan():
 			ctx.subGlobalConfig.ProcessChange(change)
@@ -128,17 +128,17 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 		}
 		ps.StillRunning(agentName, warningTime, errorTime)
 	}
-	log.Functionf("processed GlobalConfig")
+	log.Errorf("processed GlobalConfig")
 
 	if err := wait.WaitForVault(ps, log, agentName, warningTime, errorTime); err != nil {
 		log.Fatal(err)
 	}
-	log.Functionf("processed Vault Status")
+	log.Errorf("processed Vault Status")
 
 	if err := containerd.WaitForUserContainerd(ps, log, agentName, warningTime, errorTime); err != nil {
 		log.Fatal(err)
 	}
-	log.Functionf("user containerd ready")
+	log.Errorf("user containerd ready")
 
 	// start the forever loop for event handling
 	for {
@@ -176,21 +176,21 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 func handleBaseOsConfigDelete(ctxArg interface{}, key string,
 	configArg interface{}) {
 
-	log.Functionf("handleBaseOsConfigDelete(%s)", key)
+	log.Errorf("handleBaseOsConfigDelete(%s)", key)
 	ctx := ctxArg.(*baseOsMgrContext)
 	status := lookupBaseOsStatus(ctx, key)
 	if status == nil {
-		log.Functionf("handleBaseOsConfigDelete: unknown %s", key)
+		log.Errorf("handleBaseOsConfigDelete: unknown %s", key)
 		return
 	}
 	handleBaseOsConfigDeleteByStatus(ctx, key, status)
-	log.Functionf("handleBaseOsConfigDelete(%s) done", key)
+	log.Errorf("handleBaseOsConfigDelete(%s) done", key)
 }
 
 // base os config modify event
 func handleBaseOsConfigCreate(ctxArg interface{}, key string, configArg interface{}) {
 
-	log.Functionf("handleBaseOsConfigCreate(%s)", key)
+	log.Errorf("handleBaseOsConfigCreate(%s)", key)
 	ctx := ctxArg.(*baseOsMgrContext)
 	config := configArg.(types.BaseOsConfig)
 	status := types.BaseOsStatus{
@@ -214,7 +214,7 @@ func handleBaseOsConfigCreate(ctxArg interface{}, key string, configArg interfac
 func handleBaseOsConfigModify(ctxArg interface{}, key string, configArg interface{},
 	oldConfigArg interface{}) {
 
-	log.Functionf("handleBaseOsConfigModify(%s)", key)
+	log.Errorf("handleBaseOsConfigModify(%s)", key)
 	ctx := ctxArg.(*baseOsMgrContext)
 	config := configArg.(types.BaseOsConfig)
 	status := lookupBaseOsStatus(ctx, key)
@@ -223,7 +223,7 @@ func handleBaseOsConfigModify(ctxArg interface{}, key string, configArg interfac
 		return
 	}
 
-	log.Functionf("handleBaseOsConfigModify(%s) Activate %v",
+	log.Errorf("handleBaseOsConfigModify(%s) Activate %v",
 		config.Key(), config.Activate)
 
 	// Check content tree provided
@@ -244,7 +244,7 @@ func handleBaseOsConfigModify(ctxArg interface{}, key string, configArg interfac
 func handleBaseOsConfigDeleteByStatus(ctx *baseOsMgrContext, key string,
 	status *types.BaseOsStatus) {
 
-	log.Functionf("handleBaseOsConfigDeleteByStatus for %s", status.BaseOsVersion)
+	log.Errorf("handleBaseOsConfigDeleteByStatus for %s", status.BaseOsVersion)
 	removeBaseOsConfig(ctx, status.Key())
 }
 
@@ -267,7 +267,7 @@ func handleGlobalConfigImpl(ctxArg interface{}, key string,
 
 	ctx := ctxArg.(*baseOsMgrContext)
 	if key != "global" {
-		log.Functionf("handleGlobalConfigImpl: ignoring %s", key)
+		log.Errorf("handleGlobalConfigImpl: ignoring %s", key)
 		return
 	}
 	gcp := agentlog.HandleGlobalConfig(log, ctx.subGlobalConfig, agentName,
@@ -276,7 +276,7 @@ func handleGlobalConfigImpl(ctxArg interface{}, key string,
 		ctx.globalConfig = gcp
 		ctx.GCInitialized = true
 	}
-	log.Functionf("handleGlobalConfigImpl done for %s", key)
+	log.Errorf("handleGlobalConfigImpl done for %s", key)
 }
 
 func handleGlobalConfigDelete(ctxArg interface{}, key string,
@@ -284,14 +284,14 @@ func handleGlobalConfigDelete(ctxArg interface{}, key string,
 
 	ctx := ctxArg.(*baseOsMgrContext)
 	if key != "global" {
-		log.Functionf("handleGlobalConfigDelete: ignoring %s", key)
+		log.Errorf("handleGlobalConfigDelete: ignoring %s", key)
 		return
 	}
-	log.Functionf("handleGlobalConfigDelete for %s", key)
+	log.Errorf("handleGlobalConfigDelete for %s", key)
 	agentlog.HandleGlobalConfig(log, ctx.subGlobalConfig, agentName,
 		ctx.CLIParams().DebugOverride, logger)
 	*ctx.globalConfig = *types.DefaultConfigItemValueMap()
-	log.Functionf("handleGlobalConfigDelete done for %s", key)
+	log.Errorf("handleGlobalConfigDelete done for %s", key)
 }
 
 func initializeSelfPublishHandles(ps *pubsub.PubSub, ctx *baseOsMgrContext) {
@@ -477,13 +477,13 @@ func handleNodeAgentStatusImpl(ctxArg interface{}, key string,
 	ctx.rebootReason = status.RebootReason
 	ctx.rebootImage = status.RebootImage
 	updateBaseOsStatusOnReboot(ctx)
-	log.Functionf("handleNodeAgentStatusImpl(%s) done", key)
+	log.Errorf("handleNodeAgentStatusImpl(%s) done", key)
 }
 
 func handleNodeAgentStatusDelete(ctxArg interface{}, key string,
 	statusArg interface{}) {
 	// do nothing
-	log.Functionf("handleNodeAgentStatusDelete(%s) done", key)
+	log.Errorf("handleNodeAgentStatusDelete(%s) done", key)
 }
 
 func handleZbootConfigCreate(ctxArg interface{}, key string,
@@ -503,32 +503,32 @@ func handleZbootConfigImpl(ctxArg interface{}, key string,
 	config := configArg.(types.ZbootConfig)
 	status := getZbootStatus(ctx, key)
 	if status == nil {
-		log.Functionf("handleZbootConfigImpl: unknown %s", key)
+		log.Errorf("handleZbootConfigImpl: unknown %s", key)
 		return
 	}
-	log.Functionf("handleZbootImpl for %s TestComplete %v",
+	log.Errorf("handleZbootImpl for %s TestComplete %v",
 		config.Key(), config.TestComplete)
 
 	if config.TestComplete != status.TestComplete {
 		handleZbootTestComplete(ctx, config, *status)
 	}
 
-	log.Functionf("handleZbootConfigImpl(%s) done", key)
+	log.Errorf("handleZbootConfigImpl(%s) done", key)
 }
 
 func handleZbootConfigDelete(ctxArg interface{}, key string,
 	configArg interface{}) {
 
-	log.Functionf("handleZbootConfigDelete(%s)", key)
+	log.Errorf("handleZbootConfigDelete(%s)", key)
 	ctx := ctxArg.(*baseOsMgrContext)
 	status := getZbootStatus(ctx, key)
 	if status == nil {
-		log.Functionf("handleZbootConfigDelete: unknown %s", key)
+		log.Errorf("handleZbootConfigDelete: unknown %s", key)
 		return
 	}
 	// Nothing to do. We report ZbootStatus for the IMG* partitions
 	// in any case
-	log.Functionf("handleZbootConfigDelete(%s) done", key)
+	log.Errorf("handleZbootConfigDelete(%s) done", key)
 }
 
 func publishBaseOSMgrStatus(ctx *baseOsMgrContext) {

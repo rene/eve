@@ -16,7 +16,7 @@ func checkContentTreeStatus(ctx *baseOsMgrContext,
 	currentState types.SwState, contentID string) *types.RetStatus {
 
 	ret := &types.RetStatus{}
-	log.Functionf("checkContentTreeStatus for %s", contentID)
+	log.Errorf("checkContentTreeStatus for %s", contentID)
 
 	ret.Changed = false
 	ret.AllErrors = ""
@@ -25,7 +25,7 @@ func checkContentTreeStatus(ctx *baseOsMgrContext,
 	contentStatus := lookupContentTreeStatus(ctx, contentID)
 	if contentStatus != nil {
 
-		log.Functionf("checkContentTreeStatus %s, content status %v",
+		log.Errorf("checkContentTreeStatus %s, content status %v",
 			contentID, contentStatus.State)
 
 		if ret.MinState > contentStatus.State {
@@ -63,7 +63,7 @@ func installDownloadedObjects(ctx *baseOsMgrContext, uuidStr, finalObjDir string
 		proceed bool
 		err     error
 	)
-	log.Functionf("installDownloadedObjects(%s)", uuidStr)
+	log.Errorf("installDownloadedObjects(%s)", uuidStr)
 
 	status := lookupContentTreeStatus(ctx, contentID)
 
@@ -80,7 +80,7 @@ func installDownloadedObjects(ctx *baseOsMgrContext, uuidStr, finalObjDir string
 			return changed, proceed, err
 		}
 	}
-	log.Functionf("installDownloadedObjects(%s) done %v", uuidStr, proceed)
+	log.Errorf("installDownloadedObjects(%s) done %v", uuidStr, proceed)
 	return changed, proceed, nil
 }
 
@@ -95,7 +95,7 @@ func installDownloadedObject(ctx *baseOsMgrContext, contentID uuid.UUID, finalOb
 		proceed bool
 	)
 
-	log.Functionf("installDownloadedObject(%s, %v)",
+	log.Errorf("installDownloadedObject(%s, %v)",
 		contentID, ctsPtr.State)
 
 	if ctsPtr.State != types.LOADED {
@@ -106,7 +106,7 @@ func installDownloadedObject(ctx *baseOsMgrContext, contentID uuid.UUID, finalOb
 		log.Fatalf("XXX no image ID for LOADED %s",
 			contentID)
 	}
-	log.Functionf("For %s reference ID for LOADED: %s",
+	log.Errorf("For %s reference ID for LOADED: %s",
 		contentID, refID)
 
 	// make sure we have a proper final destination point
@@ -122,7 +122,7 @@ func installDownloadedObject(ctx *baseOsMgrContext, contentID uuid.UUID, finalOb
 	// check if we have a result
 	wres := ctx.worker.Pop(contentID.String())
 	if wres != nil {
-		log.Functionf("installDownloadedObject(%s): InstallWorkResult found", contentID)
+		log.Errorf("installDownloadedObject(%s): InstallWorkResult found", contentID)
 		if wres.Error != nil {
 			err := fmt.Errorf("installDownloadedObject(%s): InstallWorkResult error, exception while installing: %v", contentID, wres.Error)
 			log.Error(err.Error())
@@ -139,6 +139,6 @@ func installDownloadedObject(ctx *baseOsMgrContext, contentID uuid.UUID, finalOb
 	// do this as a background task
 	// XXX called twice!
 	AddWorkInstall(ctx, contentID.String(), refID, finalObjDir)
-	log.Functionf("installDownloadedObject(%s) worker started", contentID)
+	log.Errorf("installDownloadedObject(%s) worker started", contentID)
 	return changed, proceed, nil
 }

@@ -38,7 +38,7 @@ func AddWorkInstall(ctx *baseOsMgrContext, key, ref, target string) {
 	} else if !done {
 		log.Fatalf("Failed to submit work due to queue length for %s", key)
 	}
-	log.Functionf("AddWorkInstall(%s) done", key)
+	log.Errorf("AddWorkInstall(%s) done", key)
 }
 
 // installWorker implementation of work.WorkFunction that installs an image to a particular location
@@ -56,9 +56,9 @@ func installWorker(ctxPtr interface{}, w worker.Work) worker.WorkResult {
 		return result
 	}
 
-	log.Functionf("installWorker to install %s to %s", d.ref, d.target)
+	log.Errorf("installWorker to install %s to %s", d.ref, d.target)
 	err := zboot.WriteToPartition(log, d.ref, d.target)
-	log.Functionf("installWorker DONE install %s to %s: err %v",
+	log.Errorf("installWorker DONE install %s to %s: err %v",
 		d.ref, d.target, err)
 
 	if err != nil {

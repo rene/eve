@@ -36,7 +36,7 @@ func handleNodeDrainStatusImpl(ctxArg interface{}, _ string,
 		return
 	}
 
-	log.Functionf("handleNodeDrainStatusImpl to:%v", newStatus)
+	log.Errorf("handleNodeDrainStatusImpl to:%v", newStatus)
 	if (newStatus.Status == kubeapi.FAILEDCORDON) ||
 		(newStatus.Status == kubeapi.FAILEDDRAIN) {
 		log.Errorf("handleNodeDrainStatusImpl nodedrain-step:drain-failed-handler unpublish NodeDrainRequest due to NodeDrainStatus:%v", newStatus)
@@ -123,7 +123,7 @@ func shouldDeferForNodeDrain(ctx *baseOsMgrContext, id string, config *types.Bas
 		drainStatus.Status == kubeapi.STARTING ||
 		drainStatus.Status == kubeapi.CORDONED ||
 		drainStatus.Status == kubeapi.DRAINRETRYING {
-		log.Functionf("shouldDeferForNodeDrain drain in-progress or in error, still defer")
+		log.Errorf("shouldDeferForNodeDrain drain in-progress or in error, still defer")
 		return true
 	}
 

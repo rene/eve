@@ -36,13 +36,13 @@ func handleZedAgentStatusImpl(ctxArg interface{}, key string,
 	ctxPtr := ctxArg.(*baseOsMgrContext)
 	status := statusArg.(types.ZedAgentStatus)
 	handleForceFallback(ctxPtr, status)
-	log.Functionf("handleZedAgentStatusImpl(%s) done", key)
+	log.Errorf("handleZedAgentStatusImpl(%s) done", key)
 }
 
 func handleZedAgentStatusDelete(ctxArg interface{}, key string,
 	statusArg interface{}) {
 	// do nothing
-	log.Functionf("handleZedAgentStatusDelete(%s) done", key)
+	log.Errorf("handleZedAgentStatusDelete(%s) done", key)
 }
 
 // handleForceFallback checks if we have a file with a ForceFallbackCounter
@@ -56,13 +56,13 @@ func handleForceFallback(ctxPtr *baseOsMgrContext, status types.ZedAgentStatus) 
 	counter, found := readForceFallbackCounter()
 	if !found {
 		// Just write the current value
-		log.Functionf("Saving initial ForceFallbackCounter %d",
+		log.Errorf("Saving initial ForceFallbackCounter %d",
 			status.ForceFallbackCounter)
 		writeForceFallbackCounter(status.ForceFallbackCounter)
 		return
 	}
 	if counter == status.ForceFallbackCounter {
-		log.Functionf("No change to ForceFallbackCounter %d", counter)
+		log.Errorf("No change to ForceFallbackCounter %d", counter)
 		return
 	}
 	log.Noticef("Handle ForceFallbackCounter update from %d to %d",
