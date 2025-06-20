@@ -11,7 +11,7 @@ ARG BUILD_PKGS_BASE="git gcc linux-headers libc-dev make linux-pam-dev m4 findut
 ARG EVE_ALPINE_IMAGE=lfedge/eve-alpine:82df60e43ab9f8c935584b8c7b4d0a4b0271d608
 
 FROM lfedge/eve-uefi:8bab7035e4b254ace0bd0dd182de2b1588b94355 as uefi-build
-FROM lfedge/eve-dom0-ztools:09f378d92d6c8ada04fb8e9cf5d45fc8fdf934f9 as zfs
+FROM lfedge/eve-dom0-ztools:e8db15b6c03b6204028c079177b1ca82ac6ad676 as zfs
 RUN mkdir /out
 # copy zfs-related files from dom0-ztools using prepared list of files
 RUN while read -r x; do \
@@ -143,7 +143,7 @@ RUN set -e && for patch in /sys-patches/*.patch; do \
     done
 
 RUN mkdir -p /out/usr/lib/xen/boot
-COPY --from=uefi-build /OVMF_VARS.fd /out/usr/lib/xen/boot/OVMF_VARS.fd
+COPY --from=zfs /etc/ovmf/OVMF_VARS_640x480.fd /out/usr/lib/xen/boot/OVMF_VARS.fd
 
 COPY --from=zfs /out /out
 COPY --from=fscrypt /opt/zededa/bin /out/opt/zededa/bin
