@@ -1,16 +1,17 @@
-# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2025, Zededa, Inc.
+# SPDX-License-Identifier: Apache-2.0
 ---
-name: Rerun CI
+name: Rerun CI on /rerun-ci
 
 on:  # yamllint disable-line rule:truthy
   issue_comment:
     types: [created]
 
 jobs:
-  rerun-workflows:
+  rerun-failed:
     if: |
-      github.event.issue.pull_request && startsWith(github.event.comment.body, '/rerun')
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/rerun-ci')
     runs-on: ubuntu-latest
 
     permissions:
@@ -37,74 +38,36 @@ jobs:
             exit 1
           fi
 
-      - name: Set run mode (red or yellow)
-        id: mode
-        run: |
-          BODY="${{ github.event.comment.body }}"
-          if [[ "$BODY" =~ ^/rerun[[:space:]]+yellow ]]; then
-            echo "mode=yellow" >> $GITHUB_OUTPUT
-          elif [[ "$BODY" =~ ^/rerun[[:space:]]+red ]]; then
-            echo "mode=red" >> $GITHUB_OUTPUT
-          else
-            echo "Unknown rerun mode" >&2
-            exit 1
-          fi
-
-      - name: Gather PR branch and SHA
-        id: prinfo
+      - name: Find failed workflow runs for this PR
+        id: get_runs
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUMBER="${{ github.event.issue.number }}"
           REPO="${{ github.repository }}"
-
-          BRANCH=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName -q .headRefName)
-          SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid -q .headRefOid)
-          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
-
-      - name: Find and act on workflow runs for this PR's latest commit
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: ${{ steps.prinfo.outputs.branch }}
-          SHA: ${{ steps.prinfo.outputs.sha }}
-          REPO: ${{ github.repository }}
-          MODE: ${{ steps.mode.outputs.mode }}
-        run: |
-          set -euo pipefail
-
-          # Get all runs for the branch (could be for old commits, so we'll filter below)
-          RUNS=$(gh run list --repo "$REPO" --branch "$BRANCH" --json databaseId,status,conclusion,headSha,workflowName,displayTitle,event)
-
-          # Cancel all in-progress runs for this commit if requested
-          if [[ "$MODE" == "yellow" ]]; then
-            echo "Cancelling all in-progress or queued runs for commit $SHA on branch $BRANCH..."
-            echo "$RUNS" | jq -r \
-              '.[] | select(.headSha == env.SHA and .status != "completed") | .databaseId' | while read -r run_id; do
-                [ -z "$run_id" ] && continue
-                echo "Canceling run $run_id"
-                gh run cancel "$run_id" --repo "$REPO"
-              done
-
-            # Poll (with short backoff) until all in-progress/queued runs for this commit are done
-            # Max 15 iterations, summing to 120 seconds
-            for i in {1..15}; do
-              sleep $((i))
-              RUNS_LEFT=$(gh run list --repo "$REPO" --branch "$BRANCH" --json databaseId,status,headSha | jq \
-                '[.[] | select(.headSha == env.SHA and .status != "completed")] | length')
-              echo "Still running: $RUNS_LEFT"
-              [ "$RUNS_LEFT" -eq 0 ] && break
-            done
-
-            # Refresh RUNS after cancellation!
-            RUNS=$(gh run list --repo "$REPO" --branch "$BRANCH" --json databaseId,status,conclusion,headSha,workflowName,displayTitle,event)
+          PR_DATA=$(curl -sSL -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER")
+          BRANCH=$(echo "$PR_DATA" | jq -r '.head.ref')
+          RUNS_URL="https://api.github.com/repos/$REPO/actions/runs?event=pull_request&branch=$BRANCH"
+          RUNS=$(curl -sSL -H "Authorization: Bearer $GITHUB_TOKEN" "$RUNS_URL")
+          RUN_IDS=$(echo "$RUNS" | jq -r '.workflow_runs[] | select(.pull_requests[].number=='"$PR_NUMBER"') | select(.conclusion != null and .conclusion != "success") | .id')
+          echo "$RUN_IDS" > run_ids.txt
+          if [ -z "$RUN_IDS" ]; then
+            echo "No failed workflow runs found for this PR"
+            echo "has_runs=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_runs=true" >> "$GITHUB_OUTPUT"
           fi
 
-          # Now rerun all runs for this commit that are completed and not successful
-          echo "$RUNS" | jq -r \
-            '.[] | select(.headSha == env.SHA and .status == "completed" and (.conclusion != "success" and .conclusion != "skipped")) | .databaseId' \
-            | while read -r run_id; do
-                [ -z "$run_id" ] && continue
-                echo "Re-running failed/canceled run $run_id"
-                gh run rerun "$run_id" --repo "$REPO"
-              done
+      - name: Re-run failed workflow runs
+        if: steps.get_runs.outputs.has_runs == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="${{ github.repository }}"
+          while read -r run_id; do
+            [ -z "$run_id" ] && continue
+            echo "Re-running workflow run $run_id"
+            curl -sSL -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/actions/runs/$run_id/rerun"
+          done < run_ids.txt
