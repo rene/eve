@@ -78,7 +78,6 @@ jobs:
 
           # Get all runs for the branch (could be for old commits, so we'll filter below)
           RUNS=$(gh run list --repo "$REPO" --branch "$BRANCH" --json databaseId,status,conclusion,headSha,workflowName,displayTitle,event)
-          # echo "$RUNS" | jq
 
           # Cancel all in-progress runs for this commit if requested
           if [[ "$MODE" == "cancel" ]]; then
@@ -98,6 +97,9 @@ jobs:
               echo "Still running: $RUNS_LEFT"
               [ "$RUNS_LEFT" -eq 0 ] && break
             done
+
+            # IMPORTANT: Refresh RUNS after cancellation!
+            RUNS=$(gh run list --repo "$REPO" --branch "$BRANCH" --json databaseId,status,conclusion,headSha,workflowName,displayTitle,event)
           fi
 
           # Now rerun all runs for this commit that are completed and not successful
