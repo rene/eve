@@ -3,7 +3,7 @@
 ---
 name: Rerun CI
 
-on:
+on:  # yamllint disable-line rule:truthy
   issue_comment:
     types: [created]
 
@@ -24,6 +24,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install gh jq -y
+
       - name: Parse CODEOWNERS to get allowed users
         run: |
           CODEOWNERS=".github/CODEOWNERS"
@@ -38,94 +43,65 @@ jobs:
             exit 1
           fi
 
-      - name: Check for cancel command
-        id: cancel_check
+      - name: Set run mode (rerun or cancel+rerun)
+        id: mode
         run: |
-          if echo "${{ github.event.comment.body }}" | grep -q '^/rerun-ci[[:space:]]\+cancel\|^/rerun-ci$'; then
-            # The ^/rerun-ci$ part ensures /rerun-ci alone doesn't trigger cancel
-            :
-          fi
-          if echo "${{ github.event.comment.body }}" | grep -q '^/rerun-ci[[:space:]]\+cancel'; then
-            echo "cancel=true" >> "$GITHUB_OUTPUT"
+          BODY="${{ github.event.comment.body }}"
+          if [[ "$BODY" =~ /rerun-ci[[:space:]]+cancel ]]; then
+            echo "mode=cancel" >> $GITHUB_OUTPUT
           else
-            echo "cancel=false" >> "$GITHUB_OUTPUT"
+            echo "mode=rerun" >> $GITHUB_OUTPUT
           fi
 
-      # Cancel all in-progress or queued workflow runs for this PR if /rerun-ci cancel is given
-      - name: Cancel in-progress runs for this PR
-        if: steps.cancel_check.outputs.cancel == 'true'
+      - name: Find and act on workflow runs for this PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -e
           PR_NUMBER="${{ github.event.issue.number }}"
           REPO="${{ github.repository }}"
+
+          # Find the branch for this PR
           BRANCH=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName -q .headRefName)
-          gh run list --repo "$REPO" --branch "$BRANCH" --event pull_request_target --json databaseId,status \
-            | jq -r '.[] | select(.status=="in_progress" or .status=="queued") | .databaseId' > running_ids.txt
-          if [ -s running_ids.txt ]; then
-            while read -r run_id; do
-              [ -z "$run_id" ] && continue
-              echo "Canceling workflow run $run_id"
-              gh run cancel "$run_id" --repo "$REPO"
-            done < running_ids.txt
-          else
-            echo "No in-progress runs found to cancel."
+          echo "Branch for PR $PR_NUMBER is $BRANCH"
+
+          # Get all workflow runs for this PR's branch and event
+          RUNS=$(gh run list --repo "$REPO" --branch "$BRANCH" --json databaseId,status,conclusion,event,headBranch,workflowName,displayTitle,headSha,pullRequests)
+
+          # Filter runs that are associated with this PR number
+          RUN_IDS=$(echo "$RUNS" | jq -r \
+            '[ .[] | select(.pullRequests[]?.number=='"$PR_NUMBER"') | .databaseId ] | @tsv')
+
+          if [[ "${{ steps.mode.outputs.mode }}" == "cancel" ]]; then
+            # Cancel all currently in-progress runs
+            for run_id in $RUN_IDS; do
+              STATUS=$(gh run view "$run_id" --repo "$REPO" --json status -q .status)
+              if [[ "$STATUS" == "in_progress" || "$STATUS" == "queued" || "$STATUS" == "waiting" ]]; then
+                echo "Canceling run $run_id"
+                gh run cancel "$run_id" --repo "$REPO"
+              fi
+            done
+
+            # Wait for all runs to be not in-progress anymore (use backoff to avoid hammering)
+            for i in {1..10}; do
+              sleep $((i))  # quick backoff
+              ALL_DONE=true
+              for run_id in $RUN_IDS; do
+                STATUS=$(gh run view "$run_id" --repo "$REPO" --json status -q .status)
+                if [[ "$STATUS" == "in_progress" || "$STATUS" == "queued" || "$STATUS" == "waiting" ]]; then
+                  ALL_DONE=false
+                fi
+              done
+              [[ "$ALL_DONE" == "true" ]] && break
+            done
           fi
 
-      # Wait a bit to allow cancellation to process
-      - name: Wait for cancellations to process
-        if: steps.cancel_check.outputs.cancel == 'true'
-        run: sleep 30
-
-      # Re-run all cancelled runs
-      - name: Re-run cancelled runs
-        if: steps.cancel_check.outputs.cancel == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_NUMBER="${{ github.event.issue.number }}"
-          REPO="${{ github.repository }}"
-          BRANCH=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName -q .headRefName)
-          gh run list --repo "$REPO" --branch "$BRANCH" --event pull_request_target --json databaseId,conclusion \
-            | jq -r '.[] | select(.conclusion=="cancelled") | .databaseId' > cancelled_ids.txt
-          if [ -s cancelled_ids.txt ]; then
-            while read -r run_id; do
-              [ -z "$run_id" ] && continue
-              echo "Re-running cancelled workflow run $run_id"
+          # Now rerun all runs that are completed and not successful
+          for run_id in $RUN_IDS; do
+            STATUS=$(gh run view "$run_id" --repo "$REPO" --json status,conclusion -q '.status')
+            CONCLUSION=$(gh run view "$run_id" --repo "$REPO" --json status,conclusion -q '.conclusion')
+            if [[ "$STATUS" == "completed" && "$CONCLUSION" != "success" && "$CONCLUSION" != "skipped" ]]; then
+              echo "Re-running failed/canceled run $run_id"
               gh run rerun "$run_id" --repo "$REPO"
-            done < cancelled_ids.txt
-          else
-            echo "No cancelled runs found to rerun."
-          fi
-
-      # Find failed workflow runs for this PR (only if not cancel command)
-      - name: Find failed workflow runs for this PR
-        id: get_runs
-        if: steps.cancel_check.outputs.cancel == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_NUMBER="${{ github.event.issue.number }}"
-          REPO="${{ github.repository }}"
-          BRANCH=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName -q .headRefName)
-          gh run list --repo "$REPO" --branch "$BRANCH" --event pull_request_target --json databaseId,status,conclusion \
-            | jq -r '.[] | select(.status=="completed" and .conclusion!="success") | .databaseId' > run_ids.txt
-          if [ -s run_ids.txt ]; then
-            echo "has_runs=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No failed workflow runs found for this PR"
-            echo "has_runs=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # Re-run failed workflow runs (only if not cancel command)
-      - name: Re-run failed workflow runs
-        if: steps.cancel_check.outputs.cancel == 'false' && steps.get_runs.outputs.has_runs == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          REPO="${{ github.repository }}"
-          while read -r run_id; do
-            [ -z "$run_id" ] && continue
-            echo "Re-running workflow run $run_id"
-            gh run rerun "$run_id" --repo "$REPO" --failed
-          done < run_ids.txt
+            fi
+          done
