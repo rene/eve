@@ -1,5 +1,5 @@
-# Copyright (c) 2025, Zededa, Inc.
 # SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025, Zededa, Inc.
 ---
 name: Rerun CI
 
@@ -53,55 +53,58 @@ jobs:
             echo "mode=rerun" >> $GITHUB_OUTPUT
           fi
 
-      - name: Find and act on workflow runs for this PR
+      - name: Gather PR branch and SHA
+        id: prinfo
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -e
           PR_NUMBER="${{ github.event.issue.number }}"
           REPO="${{ github.repository }}"
 
-          # Find the branch for this PR
           BRANCH=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName -q .headRefName)
-          echo "Branch for PR $PR_NUMBER is $BRANCH"
+          SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid -q .headRefOid)
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
 
-          # Get all workflow runs for this PR's branch and event
-          RUNS=$(gh run list --repo "$REPO" --branch "$BRANCH" --json databaseId,status,conclusion,event,headBranch,workflowName,displayTitle,headSha,pullRequests)
+      - name: Find and act on workflow runs for this PR's latest commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.prinfo.outputs.branch }}
+          SHA: ${{ steps.prinfo.outputs.sha }}
+          REPO: ${{ github.repository }}
+          MODE: ${{ steps.mode.outputs.mode }}
+        run: |
+          set -euo pipefail
 
-          # Filter runs that are associated with this PR number
-          RUN_IDS=$(echo "$RUNS" | jq -r \
-            '[ .[] | select(.pullRequests[]?.number=='"$PR_NUMBER"') | .databaseId ] | @tsv')
+          # Get all runs for the branch (could be for old commits, so we'll filter below)
+          RUNS=$(gh run list --repo "$REPO" --branch "$BRANCH" --json databaseId,status,conclusion,headSha,workflowName,displayTitle,event)
+          # echo "$RUNS" | jq
 
-          if [[ "${{ steps.mode.outputs.mode }}" == "cancel" ]]; then
-            # Cancel all currently in-progress runs
-            for run_id in $RUN_IDS; do
-              STATUS=$(gh run view "$run_id" --repo "$REPO" --json status -q .status)
-              if [[ "$STATUS" == "in_progress" || "$STATUS" == "queued" || "$STATUS" == "waiting" ]]; then
+          # Cancel all in-progress runs for this commit if requested
+          if [[ "$MODE" == "cancel" ]]; then
+            echo "Cancelling all in-progress or queued runs for commit $SHA on branch $BRANCH..."
+            echo "$RUNS" | jq -r \
+              '.[] | select(.headSha == env.SHA and .status != "completed") | .databaseId' | while read -r run_id; do
+                [ -z "$run_id" ] && continue
                 echo "Canceling run $run_id"
                 gh run cancel "$run_id" --repo "$REPO"
-              fi
-            done
-
-            # Wait for all runs to be not in-progress anymore (use backoff to avoid hammering)
-            for i in {1..10}; do
-              sleep $((i))  # quick backoff
-              ALL_DONE=true
-              for run_id in $RUN_IDS; do
-                STATUS=$(gh run view "$run_id" --repo "$REPO" --json status -q .status)
-                if [[ "$STATUS" == "in_progress" || "$STATUS" == "queued" || "$STATUS" == "waiting" ]]; then
-                  ALL_DONE=false
-                fi
               done
-              [[ "$ALL_DONE" == "true" ]] && break
+
+            # Poll (with short backoff) until all in-progress/queued runs for this commit are done
+            for i in {1..10}; do
+              sleep $((i))
+              RUNS_LEFT=$(gh run list --repo "$REPO" --branch "$BRANCH" --json databaseId,status,headSha | jq \
+                '[.[] | select(.headSha == env.SHA and .status != "completed")] | length')
+              echo "Still running: $RUNS_LEFT"
+              [ "$RUNS_LEFT" -eq 0 ] && break
             done
           fi
 
-          # Now rerun all runs that are completed and not successful
-          for run_id in $RUN_IDS; do
-            STATUS=$(gh run view "$run_id" --repo "$REPO" --json status,conclusion -q '.status')
-            CONCLUSION=$(gh run view "$run_id" --repo "$REPO" --json status,conclusion -q '.conclusion')
-            if [[ "$STATUS" == "completed" && "$CONCLUSION" != "success" && "$CONCLUSION" != "skipped" ]]; then
-              echo "Re-running failed/canceled run $run_id"
-              gh run rerun "$run_id" --repo "$REPO"
-            fi
-          done
+          # Now rerun all runs for this commit that are completed and not successful
+          echo "$RUNS" | jq -r \
+            '.[] | select(.headSha == env.SHA and .status == "completed" and (.conclusion != "success" and .conclusion != "skipped")) | .databaseId' \
+            | while read -r run_id; do
+                [ -z "$run_id" ] && continue
+                echo "Re-running failed/canceled run $run_id"
+                gh run rerun "$run_id" --repo "$REPO"
+              done
