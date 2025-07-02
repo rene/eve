@@ -59,8 +59,8 @@ jobs:
         if: ${{ github.event.repository.full_name }}== 'rene/eve'
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_PULL_USER }}
-          password: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_PULL_BROKEN_USER }}
+          password: ${{ secrets.DOCKERHUB_PULL_BROKEN_TOKEN }}
       - name: Debug Docker login before packages build
         run: |
           echo "Current Docker credentials:"
