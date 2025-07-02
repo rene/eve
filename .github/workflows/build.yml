@@ -61,6 +61,11 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_PULL_USER }}
           password: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
+      - name: Debug Docker login before packages build
+        run: |
+          echo "Current Docker credentials:"
+          cat ~/.docker/config.json || echo "No Docker config found"
+          docker info
       - name: ensure zstd for cache  # this should be removed once the arm64 VM includes zstd
         if: ${{ matrix.os == 'buildjet-4vcpu-ubuntu-2204-arm' || matrix.os == 'arm64-secure' }}
         run: |
@@ -132,6 +137,11 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_PULL_USER }}
           password: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
+      - name: Debug Docker login before eve build
+        run: |
+          echo "Current Docker credentials:"
+          cat ~/.docker/config.json || echo "No Docker config found"
+          docker info
 
       - name: Arch Runner is Matrix
         id: arch_runner_equals_matrix
