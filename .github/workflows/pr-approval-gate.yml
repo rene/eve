@@ -8,66 +8,52 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check_md_wf_files:
+  gate:
     if: ${{ github.event.review.state == 'approved' }}
     runs-on: ubuntu-latest
     outputs:
       only_md:                 ${{ steps.detect.outputs.only_md }}
       workflow_files_modified: ${{ steps.detect.outputs.workflow_files_modified }}
+      run_id:                  ${{ steps.lookup.outputs.run_id }}
+
     steps:
-      - name: Detect changes (md vs workflows)
+      - name: Detect file changes
         id: detect
         env:
           PR_FILES_URL: ${{ github.event.pull_request._links.self.href }}/files
         run: |
           RESPONSE=$(curl -s "$PR_FILES_URL")
-          MODIFIED_FILES=$(echo "$RESPONSE" | jq -r '.[].filename')
+          MODIFIED=$(echo "$RESPONSE" | jq -r '.[].filename')
 
           ONLY_MD=true
-          echo "$MODIFIED_FILES" | grep -vq '\.md$' && ONLY_MD=false
-          echo "only_md=$ONLY_MD" >> "$GITHUB_OUTPUT"
+          echo "$MODIFIED" | grep -vq '\.md$' && ONLY_MD=false
+          echo "only_md=$ONLY_MD" >> $GITHUB_OUTPUT
 
           WF_MOD=false
-          echo "$MODIFIED_FILES" | grep -qE '^\.github/workflows/.*\.(yml|yaml)$' && WF_MOD=true
-          echo "workflow_files_modified=$WF_MOD" >> "$GITHUB_OUTPUT"
+          echo "$MODIFIED" | grep -qE '^\.github/workflows/.*\.(yml|yaml)$' && WF_MOD=true
+          echo "workflow_files_modified=$WF_MOD" >> $GITHUB_OUTPUT
 
-  get_run_id:
-    if: |
-      github.event.review.state == 'approved' &&
-      needs.check_md_wf_files.outputs.only_md == 'false' &&
-      needs.check_md_wf_files.outputs.workflow_files_modified == 'false'
-    runs-on: ubuntu-latest
-    needs: check_md_wf_files
-    outputs:
-      run_id: ${{ steps.fetch.outputs.run_id }}
-    steps:
-      - name: Fetch latest successful build run-ID
-        id: fetch
+      - name: Lookup build run id
+        id: lookup
+        if: ${{ steps.detect.outputs.only_md == 'false' && steps.detect.outputs.workflow_files_modified == 'false' }}
         env:
-          HEAD_SHA:     ${{ github.event.pull_request.head.sha }}
-          REPO:         ${{ github.repository }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # read-only in forks – enough for public metadata
+          SHA:  ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
         run: |
-          url="https://api.github.com/repos/$REPO/actions/workflows/build.yml/runs?head_sha=$HEAD_SHA&status=success"
-          RUN_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "$url" | jq -r '.workflow_runs[0].id')
-          if [ "$RUN_ID" = "null" ] || [ -z "$RUN_ID" ]; then
-            echo "No successful build.yml run found"; exit 0
-          fi
-          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          url="https://api.github.com/repos/$REPO/actions/workflows/build.yml/runs?head_sha=$SHA&status=success"
+          RUN_ID=$(curl -s "$url" | jq -r '.workflow_runs[0].id')
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
-  save_context:
-    needs: get_run_id
-    runs-on: ubuntu-latest
-    steps:
-      - name: Write context JSON
+      - name: Upload gate-context artifact
+        if: ${{ always() }}
         run: |
           cat > gate-context.json <<EOF
           {
             "pr":  "${{ github.event.pull_request.number }}",
-            "run": "${{ needs.get_run_id.outputs.run_id }}"
+            "run": "${{ steps.lookup.outputs.run_id }}"
           }
           EOF
       - uses: actions/upload-artifact@v4
         with:
-          name: gate-context          # fixed name—safe per-run
+          name: gate-context
           path: gate-context.json
