@@ -8,15 +8,13 @@ on:
 permissions:
   contents: read
   actions:  read
-  checks:   write        # ← needed to create / update check-runs
+  checks:   write
 
 env:
-  CHECK_NAME: Eden trusted tests    # label shown in PR Checks list
+  CHECK_NAME: Eden trusted tests
+  DETAILS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:
-  # ───────────────────────────────────────────────────────────────
-  # 1)  Download artifact, extract PR + run-id, open check-run
-  # ───────────────────────────────────────────────────────────────
   context:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
@@ -25,55 +23,43 @@ jobs:
       run_id:   ${{ steps.parse.outputs.run_id }}
       check_id: ${{ steps.open.outputs.id }}
     steps:
-      - name: Download gate-context artifact
+      # download gate-context artifact (PR number + build run-id)
+      - name: Download gate-context
         uses: actions/download-artifact@v4
         with:
           name: gate-context
-          run-id: ${{ github.event.workflow_run.id }}    # isolate to this Gate run
+          run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - id: parse
         run: |
-          echo "pr=$(jq -r '.pr'  gate-context.json)"     >> $GITHUB_OUTPUT
-          echo "run_id=$(jq -r '.run' gate-context.json)" >> $GITHUB_OUTPUT
+          echo "pr=$(jq -r .pr  gate-context.json)"      >> $GITHUB_OUTPUT
+          echo "run_id=$(jq -r .run gate-context.json)"  >> $GITHUB_OUTPUT
 
-      # ---- create PR-visible check-run (in-progress) ----
+      # create an “in-progress” check-run on the PR HEAD commit
       - id: open
         uses: actions/github-script@v7
         with:
           result-encoding: string
           script: |
             const { owner, repo } = context.repo;
-
-            // PR info is embedded in the workflow_run payload
-            const prs = context.payload.workflow_run.pull_requests;
-            if (prs.length === 0) {
-              core.setFailed('No pull_request info in workflow_run payload');
-              return;
-            }
-            const head_sha = prs[0].head.sha;   // ← commit that shows in PR UI
-            const name     = process.env.CHECK_NAME;
-
+            const head_sha = context.payload.workflow_run.pull_requests[0].head.sha;
             const { data } = await github.rest.checks.create({
               owner, repo,
-              name,
+              name: process.env.CHECK_NAME,
               head_sha,
               status:     'in_progress',
               started_at: new Date().toISOString(),
+              details_url: process.env.DETAILS_URL,
               output: {
                 title:   'Runner workflow started',
                 summary: 'Executing Eden trusted tests …'
               }
             });
-
             core.setOutput('id', data.id.toString());
 
-  # ───────────────────────────────────────────────────────────────
-  # 2)  Eden reusable workflow (matrix) – secrets allowed
-  # ───────────────────────────────────────────────────────────────
-  test_suite_pr:
+  tests:
     needs: context
-    if: ${{ needs.context.outputs.pr != '' }}   # guard
     uses: lf-edge/eden/.github/workflows/test.yml@1.0.2
     secrets: inherit
     strategy:
@@ -89,34 +75,31 @@ jobs:
       artifact_run_id:   ${{ needs.context.outputs.run_id }}
       eden_version:      "1.0.2"
 
-  # ───────────────────────────────────────────────────────────────
-  # 3)  Close the check-run with final conclusion
-  # ───────────────────────────────────────────────────────────────
   close_check:
     if: always()
-    needs: [context, test_suite_pr]
+    needs: [context, tests]
     runs-on: ubuntu-latest
     steps:
       - name: Finalise PR check-run
         uses: actions/github-script@v7
         env:
           CHECK_ID: ${{ needs.context.outputs.check_id }}
-          RESULT:   ${{ needs.test_suite_pr.result }}   # success / failure / cancelled
+          RESULT:   ${{ needs.tests.result }}         # success / failure / cancelled
+          DETAILS:  ${{ env.DETAILS_URL }}
         with:
           script: |
             const { owner, repo } = context.repo;
             const id  = Number(process.env.CHECK_ID);
             const map = { success:'success', failure:'failure', cancelled:'cancelled' };
             const conclusion = map[process.env.RESULT] || 'neutral';
-
             await github.rest.checks.update({
-              owner, repo,
-              check_run_id: id,
+              owner, repo, check_run_id: id,
               status: 'completed',
               completed_at: new Date().toISOString(),
               conclusion,
+              details_url: process.env.DETAILS,
               output: {
                 title:   'Eden trusted tests',
-                summary: `Workflow **${conclusion}**.\n\n[Logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})`
+                summary: `Workflow **${conclusion}** – click *Details* for full job list.`
               }
             });
