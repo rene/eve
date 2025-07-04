@@ -33,6 +33,14 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Print Debug Info
+        run: |
+          if [[ -z "${{ secrets.DOCKERHUB_PULL_USER }}" ]]; then
+            echo "Warning: DOCKERHUB_PULL_USER secret is not set. This may affect the ability to pull images from Docker Hub.";
+            exit 1
+          fi
+  
+
       - id: extract
         run: |
           echo "pr=$(jq -r .pr  gate-context.json)"      >> $GITHUB_OUTPUT
