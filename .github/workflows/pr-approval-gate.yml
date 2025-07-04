@@ -42,6 +42,10 @@ jobs:
         run: |
           url="https://api.github.com/repos/$REPO/actions/workflows/build.yml/runs?head_sha=$SHA&status=success"
           RUN_ID=$(curl -s "$url" | jq -r '.workflow_runs[0].id')
+          if [ -z "$RUN_ID" ]; then
+            echo "No successful build run found for SHA $SHA in repository $REPO."
+            exit 1
+          fi
           echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
       - name: Upload gate-context artifact
