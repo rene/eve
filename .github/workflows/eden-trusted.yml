@@ -18,6 +18,7 @@ jobs:
         with:
           name: gate-context
           run-id: ${{ github.event.workflow_run.id }}   # isolate to this Gate run
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - id: parse
         run: |
