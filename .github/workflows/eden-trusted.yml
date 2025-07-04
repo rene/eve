@@ -62,7 +62,7 @@ jobs:
   # ───────────────────────────────────────────────────────────────
   tests:
     needs: context
-    uses: lf-edge/eden/.github/workflows/test.yml@1.0.2
+    uses: lf-edge/eden/.github/workflows/test.yml@1.0.4
     secrets: inherit
     strategy:
       fail-fast: false
@@ -75,7 +75,7 @@ jobs:
       eve_log_level:     "debug"
       eve_artifact_name: "eve-${{ matrix.hv }}-${{ matrix.arch }}-${{ matrix.platform }}"
       artifact_run_id:   ${{ needs.context.outputs.run_id }}
-      eden_version:      "1.0.2"
+      eden_version:      "1.0.4"
 
   # ───────────────────────────────────────────────────────────────
   # 3)  Flip commit-status to success / failure
