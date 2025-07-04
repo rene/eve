@@ -24,8 +24,18 @@ jobs:
         run: |
           PR=$(jq -r '.pr'  gate-context.json)
           RUN=$(jq -r '.run' gate-context.json)
+          echo "Parsed PR: $PR, Run ID: $RUN"
           echo "pr=$PR"       >> "$GITHUB_OUTPUT"
           echo "run_id=$RUN"  >> "$GITHUB_OUTPUT"
+
+      - name: Debug Secrets
+        run: |
+          if [ -z "${{ secrets.DOCKERHUB_PULL_USER }}" ]; then
+            echo "DOCKERHUB_PULL_USER is not set"
+          else
+            echo "DOCKERHUB_PULL_USER is set"
+          fi
+          echo "DOCKERHUB_PULL_USER=${{ secrets.DOCKERHUB_PULL_USER }}"
 
   test_suite_pr:
     uses: lf-edge/eden/.github/workflows/test.yml@1.0.2
