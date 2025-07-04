@@ -1,0 +1,53 @@
+name: PR Approval Runner  # secrets-enabled stage
+
+on:
+  workflow_run:
+    workflows: ["PR Approval Gate"]
+    types: [completed]
+
+jobs:
+  test_suite_pr:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:     [amd64]
+        hv:       [kvm]
+        platform: ["generic"]
+
+    steps:
+      # ── download the artifact FROM THE TRIGGERING GATE RUN ──
+      - name: Download Gate context
+        uses: actions/download-artifact@v4
+        with:
+          name: gate-context
+          run-id: ${{ github.event.workflow_run.id }}   # <— the magic: isolate to this Gate run
+
+      - id: parse
+        run: |
+          RUN_ID=$(jq -r '.run' gate-context.json)
+          PR_NUM=$(jq -r '.pr'  gate-context.json)
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "pr=$PR_NUM"    >> "$GITHUB_OUTPUT"
+
+      - name: Check secrets
+        run: |
+          echo "DOCKERHUB_PULL_TOKEN: ${{ secrets.DOCKERHUB_PULL_TOKEN }}"
+          echo "DOCKERHUB_PULL_USER: ${{ secrets.DOCKERHUB_PULL_USER }}"
+          if [ -z "${{ secrets.DOCKERHUB_PULL_TOKEN }}" ] || [ -z "${{ secrets.DOCKERHUB_PULL_USER }}" ]; then
+            echo "DOCKERHUB credentials are not set. Exiting."
+            exit 1
+          fi
+
+      # ── trusted code / secrets allowed ──
+      - name: Eden test suite
+        uses: lf-edge/eden/.github/workflows/test.yml@1.0.2
+        secrets: inherit
+        with:
+          eve_image:         "evebuild/pr:${{ steps.parse.outputs.pr }}"
+          eve_log_level:     "debug"
+          eve_artifact_name: "eve-${{ matrix.hv }}-${{ matrix.arch }}-${{ matrix.platform }}"
+          artifact_run_id:   ${{ steps.parse.outputs.run_id }}
+          eden_version:      "1.0.2"
+
