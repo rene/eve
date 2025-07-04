@@ -1,4 +1,5 @@
 name: PR Approval Runner   # secrets-enabled stage
+
 on:
   workflow_run:
     workflows: ["PR Approval Gate"]
@@ -7,12 +8,15 @@ on:
 permissions:
   contents: read
   actions:  read
-  checks:   write
+  checks:   write        # ← needed to create / update check-runs
 
 env:
-  CHECK_NAME: Eden trusted tests
+  CHECK_NAME: Eden trusted tests    # label shown in PR Checks list
 
 jobs:
+  # ───────────────────────────────────────────────────────────────
+  # 1)  Download artifact, extract PR + run-id, open check-run
+  # ───────────────────────────────────────────────────────────────
   context:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
@@ -25,38 +29,48 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: gate-context
-          run-id: ${{ github.event.workflow_run.id }}   # isolate to this Gate run
+          run-id: ${{ github.event.workflow_run.id }}    # isolate to this Gate run
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - id: parse
         run: |
-          echo "pr=$(jq -r '.pr'  gate-context.json)"      >> $GITHUB_OUTPUT
-          echo "run_id=$(jq -r '.run' gate-context.json)"  >> $GITHUB_OUTPUT
+          echo "pr=$(jq -r '.pr'  gate-context.json)"     >> $GITHUB_OUTPUT
+          echo "run_id=$(jq -r '.run' gate-context.json)" >> $GITHUB_OUTPUT
 
-      # create an "in-progress" check-run so PR shows Runner status
+      # ---- create PR-visible check-run (in-progress) ----
       - id: open
         uses: actions/github-script@v7
         with:
           result-encoding: string
           script: |
             const { owner, repo } = context.repo;
-            const head_sha = context.payload.workflow_run.head_sha;
+
+            // PR info is embedded in the workflow_run payload
+            const prs = context.payload.workflow_run.pull_requests;
+            if (prs.length === 0) {
+              core.setFailed('No pull_request info in workflow_run payload');
+              return;
+            }
+            const head_sha = prs[0].head.sha;   // ← commit that shows in PR UI
             const name     = process.env.CHECK_NAME;
 
             const { data } = await github.rest.checks.create({
               owner, repo,
               name,
               head_sha,
-              status: 'in_progress',
+              status:     'in_progress',
               started_at: new Date().toISOString(),
               output: {
                 title:   'Runner workflow started',
                 summary: 'Executing Eden trusted tests …'
               }
             });
+
             core.setOutput('id', data.id.toString());
 
-
+  # ───────────────────────────────────────────────────────────────
+  # 2)  Eden reusable workflow (matrix) – secrets allowed
+  # ───────────────────────────────────────────────────────────────
   test_suite_pr:
     needs: context
     if: ${{ needs.context.outputs.pr != '' }}   # guard
@@ -75,6 +89,9 @@ jobs:
       artifact_run_id:   ${{ needs.context.outputs.run_id }}
       eden_version:      "1.0.2"
 
+  # ───────────────────────────────────────────────────────────────
+  # 3)  Close the check-run with final conclusion
+  # ───────────────────────────────────────────────────────────────
   close_check:
     if: always()
     needs: [context, test_suite_pr]
@@ -84,17 +101,13 @@ jobs:
         uses: actions/github-script@v7
         env:
           CHECK_ID: ${{ needs.context.outputs.check_id }}
-          RESULT: ${{ needs.test_suite_pr.result }}
+          RESULT:   ${{ needs.test_suite_pr.result }}   # success / failure / cancelled
         with:
           script: |
             const { owner, repo } = context.repo;
-            const id = Number(process.env.CHECK_ID);
-
-            const conclusion = ({
-              success:   'success',
-              failure:   'failure',
-              cancelled: 'cancelled'
-            })[process.env.RESULT] || 'neutral';
+            const id  = Number(process.env.CHECK_ID);
+            const map = { success:'success', failure:'failure', cancelled:'cancelled' };
+            const conclusion = map[process.env.RESULT] || 'neutral';
 
             await github.rest.checks.update({
               owner, repo,
@@ -107,4 +120,3 @@ jobs:
                 summary: `Workflow **${conclusion}**.\n\n[Logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})`
               }
             });
-
