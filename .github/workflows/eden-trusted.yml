@@ -40,13 +40,14 @@ jobs:
           result-encoding: string
           script: |
             const { owner, repo } = context.repo;
-            const head_sha       = context.payload.workflow_run.head_sha;   // commit in the PR
-            const name           = process.env.CHECK_NAME;
-            const { data } = await github.checks.create({
+            const head_sha = context.payload.workflow_run.head_sha;
+            const name     = process.env.CHECK_NAME;
+
+            const { data } = await github.rest.checks.create({
               owner, repo,
               name,
               head_sha,
-              status:     'in_progress',
+              status: 'in_progress',
               started_at: new Date().toISOString(),
               output: {
                 title:   'Runner workflow started',
@@ -54,6 +55,7 @@ jobs:
               }
             });
             core.setOutput('id', data.id.toString());
+
 
   test_suite_pr:
     needs: context
@@ -82,26 +84,27 @@ jobs:
         uses: actions/github-script@v7
         env:
           CHECK_ID: ${{ needs.context.outputs.check_id }}
-          RESULT:   ${{ needs.test_suite_pr.result }}   # success / failure / cancelled
+          RESULT: ${{ needs.test_suite_pr.result }}
         with:
           script: |
             const { owner, repo } = context.repo;
-            const id        = Number(process.env.CHECK_ID);
-            const result    = process.env.RESULT;
+            const id = Number(process.env.CHECK_ID);
 
-            const conclusion = (
-              result === 'success'   ? 'success'   :
-              result === 'failure'   ? 'failure'   :
-              result === 'cancelled' ? 'cancelled' : 'neutral'
-            );
+            const conclusion = ({
+              success:   'success',
+              failure:   'failure',
+              cancelled: 'cancelled'
+            })[process.env.RESULT] || 'neutral';
 
-            await github.checks.update({
-              owner, repo, check_run_id: id,
+            await github.rest.checks.update({
+              owner, repo,
+              check_run_id: id,
               status: 'completed',
               completed_at: new Date().toISOString(),
               conclusion,
               output: {
                 title:   'Eden trusted tests',
-                summary: `Workflow **${conclusion}**.\n\n[View logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})`
+                summary: `Workflow **${conclusion}**.\n\n[Logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})`
               }
             });
+
