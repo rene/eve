@@ -766,7 +766,7 @@ func mmioVMMOverhead(domainName string, aa *types.AssignableAdapters, domainAdap
 				continue
 			}
 			if ib.UsedByUUID != domainUUID {
-				return 0, logError("IoBundle not ours %s: %d %s for %s\n",
+				return 0, logError("IoBundle is not ours %s: %d %s for %s\n",
 					ib.UsedByUUID, adapter.Type, adapter.Name,
 					domainName)
 			}
