@@ -68,7 +68,7 @@ jobs:
         run: |
           SUCCESS=
           for i in 1 2 3; do
-            if make -e V=1 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=build pkgs; then
+            if make -e V=1 REGISTRY=10.208.13.132 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=build pkgs; then
               SUCCESS=true
               break
             else
