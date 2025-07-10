@@ -266,7 +266,7 @@ jobs:
       - name: Build EVE
         uses: ./.github/actions/run-make
         with:
-          command: "V=1 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=build eve"
+          command: "V=1 REGISTRY=10.208.13.132 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=build eve"
           dockerhub-token: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
           dockerhub-account: ${{ secrets.DOCKERHUB_PULL_USER }}
           clean: false
