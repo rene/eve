@@ -6,6 +6,11 @@ on:  # yamllint disable-line rule:truthy
       tag_ref:
         required: true
         type: string
+    secrets:
+      DOCKERHUB_PULL_TOKEN:
+        required: true
+      DOCKERHUB_PULL_USER:
+        required: true
 
 jobs:
   create_release:
