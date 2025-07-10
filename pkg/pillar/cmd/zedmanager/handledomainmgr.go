@@ -72,7 +72,7 @@ func MaybeAddDomainConfig(ctx *zedmanagerContext,
 	for _, vrc := range aiConfig.VolumeRefConfigList {
 		vrs := getVolumeRefStatusFromAIStatus(&aiStatus, vrc)
 		if vrs == nil {
-			log.Errorf("Missing VolumeRefStatus for "+
+			log.Errorf("missing VolumeRefStatus for "+
 				"(VolumeID: %s, GenerationCounter: %d, LocalGenerationCounter: %d)",
 				vrc.VolumeID, vrc.GenerationCounter, vrc.LocalGenerationCounter)
 			continue
