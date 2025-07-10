@@ -2389,7 +2389,7 @@ func handleModify(ctx *domainContext, key string,
 	changed := false
 	// if a VM has an error status, it should be restarted in the maybeRetryBoot function, not here
 	if config.Activate && !status.Activated && status.State != types.BROKEN && !status.HasError() {
-		log.Functionf("handleModify(%v) Activating for %s",
+		log.Functionf("handleModify(%v) activating for %s",
 			config.UUIDandVersion, config.DisplayName)
 
 		if status.DomainName != config.GetTaskName() {
