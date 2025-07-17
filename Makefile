@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Run make (with no arguments) to see help on what targets are available
-
+# dummy test
 # disable parallel builds by default
 # it can be overridden from make command line using -jN
 # we set it to 1 for now to still run it as sequential build by default
