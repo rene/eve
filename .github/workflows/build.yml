@@ -1,3 +1,5 @@
+# Copyright (c) 2025, Zededa, Inc.
+# SPDX-License-Identifier: Apache-2.0
 ---
 name: PR build
 on:  # yamllint disable-line rule:truthy
@@ -85,29 +87,40 @@ jobs:
 
   eve:
     needs: packages  # all packages for all platforms must be built first
-    runs-on: zededa-ubuntu-2204
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [zededa-ubuntu-2204, zededa-ubuntu-2204-arm64]
         arch: [arm64, amd64]
         hv: [xen, kvm]
         platform: ["generic"]
         include:
           - arch: riscv64
+            os: zededa-ubuntu-2204
             hv: mini
             platform: "generic"
           - arch: amd64
+            os: zededa-ubuntu-2204
             hv: kvm
             platform: "rt"
           - arch: arm64
+            os: zededa-ubuntu-2204-arm64
             hv: kvm
             platform: "nvidia"
           - arch: arm64
+            os: zededa-ubuntu-2204-arm64
             hv: kvm
             platform: "imx8mp_pollux"
           - arch: arm64
+            os: zededa-ubuntu-2204-arm64
             hv: kvm
             platform: "imx8mp_epc_r3720"
+        exclude:
+          - arch: arm64
+            os: zededa-ubuntu-2204
+          - arch: amd64
+            os: zededa-ubuntu-2204-arm64
 
     steps:
       - uses: actions/checkout@v4
