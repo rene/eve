@@ -4,6 +4,8 @@ FROM lfedge/eve-alpine:0f2e0da38e30753c68410727a6cc269e57ff74f2 as build
 ENV BUILD_PKGS go gcc musl-dev linux-headers
 RUN eve-alpine-deploy.sh
 
+# REBUILD
+
 ENV GOPATH=/go PATH=$PATH:/go/bin
 
 # see https://github.com/golang/go/issues/23672
