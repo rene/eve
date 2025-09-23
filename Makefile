@@ -179,12 +179,13 @@ ROOTFS=$(INSTALLER)/rootfs
 ROOTFS_FULL_NAME=$(INSTALLER)/rootfs-$(ROOTFS_VERSION)
 ROOTFS_COMPLETE=$(ROOTFS_FULL_NAME)-%-$(ZARCH).$(ROOTFS_FORMAT)
 ROOTFS_IMG_BASE=$(ROOTFS)
+ROOTFS_IMG_PKGS=$(ROOTFS)_pkgs
 ROOTFS_IMG_EVAL_HWE=$(ROOTFS_IMG_BASE)-evaluation-hwe.img
 ROOTFS_IMG_EVAL_LTS=$(ROOTFS_IMG_BASE)-evaluation-lts.img
 
 ROOTFS_IMGS= $(if $(findstring evaluation,$(PLATFORM)), \
 	$(ROOTFS_IMG_BASE).img $(ROOTFS_IMG_BASE)-b.img $(ROOTFS_IMG_BASE)-c.img, \
-	$(ROOTFS_IMG_BASE).img)
+	$(ROOTFS_IMG_BASE).img $(ROOTFS_IMG_PKGS).img)
 
 ROOTFS_GENERIC_IMG_INTERMEDIATE:=$(if $(findstring evaluation,$(PLATFORM)), \
 	$(ROOTFS_IMG_BASE)-evaluation-generic.img, \
@@ -202,13 +203,16 @@ $(ROOTFS_IMG_BASE)-c.img: $(ROOTFS_IMG_EVAL_LTS)
 
 # ROOTFS_TAR is in BUILD_DIR, not installer, so it does not get installed
 ROOTFS_TAR_BASE=$(BUILD_DIR)/rootfs
+ROOTFS_TAR_PKGS=$(BUILD_DIR)/rootfs_pkgs
 ROOTFS_TAR_EVAL_HWE=$(ROOTFS_TAR_BASE)-evaluation-hwe.tar
 ROOTFS_TAR_EVAL_LTS=$(ROOTFS_TAR_BASE)-evaluation-lts.tar
+
+$(ROOTFS_IMG_PKGS).img: $(ROOTFS_TAR_PKGS).tar
 
 # for evaluation platform we generate 3 rootfs tarballs:
 ROOTFS_TARS= $(if $(findstring evaluation,$(PLATFORM)), \
 	$(ROOTFS_TAR_BASE)-evaluation-generic.tar $(ROOTFS_TAR_EVAL_HWE) $(ROOTFS_TAR_EVAL_LTS), \
-	$(ROOTFS_TAR_BASE)-$(PLATFORM).tar)
+	$(ROOTFS_TAR_BASE)-$(PLATFORM).tar $(ROOTFS_TAR_PKGS).tar)
 
 CONFIG_IMG=$(INSTALLER)/config.img
 INITRD_IMG=$(INSTALLER)/initrd.img
@@ -782,6 +786,11 @@ ifdef KERNEL_IMAGE
 	tar -P -u --transform="flags=r;s|$(KIMAGE)|/boot/kernel|" -f "$@" "$(KIMAGE)"
 endif
 
+$(ROOTFS_TAR_PKGS).tar: images/out/rootfs_pkgs-$(HV).yml | $(INSTALLER)
+	$(QUIET): $@: Begin
+	echo "Building rootfs packages tarball $@ from $<"
+	./tools/makerootfs.sh tar $(UPDATE_TAR) -y $< -t $@ -d $(INSTALLER) -a $(ZARCH)
+
 $(INSTALLER_TAR): images/out/installer-$(HV)-$(PLATFORM).yml $(ROOTFS_IMGS) $(PERSIST_IMG) $(CONFIG_IMG) | $(INSTALLER)
 	$(QUIET): $@: Begin
 	echo "Building installer tarball from $<"
@@ -1199,6 +1208,12 @@ endef
 .PRECIOUS: images/out/rootfs-%.yml.in
 images/out/rootfs-%.yml.in: images/rootfs.yml.in $(RESCAN_DEPS) | images/out
 	$(info [INFO] Building rootfs for target: $*)
+	$(info [INFO] Building $@ from $<)
+	$(QUIET)tools/compose-image-yml.sh -b $< -v "$(ROOTFS_VERSION)-$*-$(ZARCH)" -o $@ -h $(HV) -p $(PLATFORM) $(call find-modifiers-rootfs,$*)
+
+.PRECIOUS: images/out/rootfs_pkgs-%.yml.in
+images/out/rootfs_pkgs-%.yml.in: images/rootfs_pkgs.yml.in $(RESCAN_DEPS) | images/out
+	$(info [INFO] Building rootfs packages for target: $*)
 	$(info [INFO] Building $@ from $<)
 	$(QUIET)tools/compose-image-yml.sh -b $< -v "$(ROOTFS_VERSION)-$*-$(ZARCH)" -o $@ -h $(HV) -p $(PLATFORM) $(call find-modifiers-rootfs,$*)
 

@@ -1,0 +1,17 @@
+services:
+  - name: edgeview
+    image: EDGEVIEW_TAG
+    cgroupsPath: /eve/services/eve-edgeview
+    oomScoreAdj: -800
+  - name: debug
+    image: DEBUG_TAG
+    cgroupsPath: /eve/services/debug
+    oomScoreAdj: -999
+  - name: wwan
+    image: WWAN_TAG
+    cgroupsPath: /eve/services/wwan
+    oomScoreAdj: -999
+  - name: memory-monitor
+    image: MEMORY_MONITOR_TAG
+    cgroupsPath: /eve/services/memory-monitor
+    oomScoreAdj: -1000

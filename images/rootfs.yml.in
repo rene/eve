@@ -54,18 +54,6 @@ services:
     image: NEWLOGD_TAG
     cgroupsPath: /eve/services/newlogd
     oomScoreAdj: -999
-  - name: edgeview
-    image: EDGEVIEW_TAG
-    cgroupsPath: /eve/services/eve-edgeview
-    oomScoreAdj: -800
-  - name: debug
-    image: DEBUG_TAG
-    cgroupsPath: /eve/services/debug
-    oomScoreAdj: -999
-  - name: wwan
-    image: WWAN_TAG
-    cgroupsPath: /eve/services/wwan
-    oomScoreAdj: -999
   - name: wlan
     image: WLAN_TAG
     cgroupsPath: /eve/services/wlan
@@ -78,10 +66,6 @@ services:
     image: PILLAR_TAG
     cgroupsPath: /eve/services/pillar
     oomScoreAdj: -999
-  - name: memory-monitor
-    image: MEMORY_MONITOR_TAG
-    cgroupsPath: /eve/services/memory-monitor
-    oomScoreAdj: -1000
   - name: vtpm
     image: VTPM_TAG
     cgroupsPath: /eve/services/vtpm
