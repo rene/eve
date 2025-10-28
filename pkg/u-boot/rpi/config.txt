@@ -17,9 +17,6 @@ initial_turbo=30
 # DO NOT overvoltage manually to not void warranty!
 over_voltage=0
 
-# Fix mini UART input frequency, and setup/enable up the UART.
-enable_uart=1
-
 # Uncomment dtoverlay=raspberrypi-uno-220 if you use advantech uno-220 board,
 # this overlay overwrites the SMBIOS information.
 #dtoverlay=raspberrypi-uno-220
@@ -50,3 +47,11 @@ include extraconfig.txt
 # Uncomment for the following line for OnLogic FR201
 # Please, don't forget to disable overlay bcm2711-spi-tpm-slb9670
 #include fr201.txt
+
+# Fix mini UART input frequency, and setup/enable up the UART.
+[pi4]
+enable_uart=1
+
+# Disable uart on Raspberry Pi 5 (due to u-boot limitation)
+[pi5]
+enable_uart=0
