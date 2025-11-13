@@ -28,6 +28,7 @@ jobs:
       pr_id: ${{ steps.extract.outputs.pr_id }}
       original_run_id: ${{ steps.extract.outputs.original_run_id }}
       pr_sha: ${{ steps.extract.outputs.pr_sha }}
+      pr_base_ref: ${{ steps.extract.outputs.pr_base_ref }}
       hv: ${{ steps.extract.outputs.hv }}
       arch: ${{ steps.extract.outputs.arch }}
       platform: ${{ steps.extract.outputs.platform }}
@@ -64,7 +65,7 @@ jobs:
         if: ${{ steps.check_gate.outputs.skip_run == 'false' }}
         env:
           RUN_CONTEXT_FILE: ${{ env.RUN_CONTEXT_FILE }}
-          REQUIRED_FIELDS: pr_id, original_run_id, pr_sha, hv, arch, platform, gate_run_id, gate_status_name
+          REQUIRED_FIELDS: pr_id, original_run_id, pr_sha, pr_base_ref, hv, arch, platform, gate_run_id, gate_status_name
         run: |
           if [[ ! -f "$RUN_CONTEXT_FILE" ]]; then
             echo "$RUN_CONTEXT_FILE file not found"
@@ -95,7 +96,7 @@ jobs:
         if: ${{ steps.check_gate.outputs.skip_run == 'false' }}
         id: extract
         env:
-          FIELDS: pr_id, original_run_id, pr_sha, hv, arch, platform, gate_run_id, gate_status_name
+          FIELDS: pr_id, original_run_id, pr_sha, pr_base_ref, hv, arch, platform, gate_run_id, gate_status_name
         run: |
           # Extract fields from the JSON file
           for field in $(echo "$FIELDS" | tr ',' ' '); do
@@ -186,18 +187,68 @@ jobs:
               target_url: process.env.EDEN_IN_PR_DETAILS_URL
             });
 
-  tests:
+  tests-13-4-stable:
     name: ${{ needs.context.outputs.eden_parent_job_title }}
     needs: context
-    if: needs.context.outputs.skip_run == 'false'
-    uses: lf-edge/eden/.github/workflows/test.yml@1.0.6
+    if: needs.context.outputs.skip_run == 'false' && needs.context.outputs.pr_base_ref == '13.4-stable'
+    uses: lf-edge/eden/.github/workflows/test.yml@1.0.9
     secrets: inherit
     with:
       eve_image: "evebuild/pr:${{ needs.context.outputs.pr_id }}"
       eve_log_level: "debug"
       eve_artifact_name: "eve-${{ needs.context.outputs.hv }}-${{ needs.context.outputs.arch }}-${{ needs.context.outputs.platform }}"
       artifact_run_id: ${{ needs.context.outputs.original_run_id }}
-      eden_version: "1.0.6"
+      eden_version: "1.0.9"
+
+  tests-14-5-stable:
+    name: ${{ needs.context.outputs.eden_parent_job_title }}
+    needs: context
+    if: needs.context.outputs.skip_run == 'false' && needs.context.outputs.pr_base_ref == '14.5-stable'
+    uses: lf-edge/eden/.github/workflows/test.yml@1.0.9
+    secrets: inherit
+    with:
+      eve_image: "evebuild/pr:${{ needs.context.outputs.pr_id }}"
+      eve_log_level: "debug"
+      eve_artifact_name: "eve-${{ needs.context.outputs.hv }}-${{ needs.context.outputs.arch }}-${{ needs.context.outputs.platform }}"
+      artifact_run_id: ${{ needs.context.outputs.original_run_id }}
+      eden_version: "1.0.9"
+
+  tests-master:
+    name: ${{ needs.context.outputs.eden_parent_job_title }}
+    needs: context
+    if: needs.context.outputs.skip_run == 'false' && needs.context.outputs.pr_base_ref == 'master'
+    uses: lf-edge/eden/.github/workflows/test.yml@1.0.13
+    secrets: inherit
+    with:
+      eve_image: "evebuild/pr:${{ needs.context.outputs.pr_id }}"
+      eve_log_level: "debug"
+      eve_artifact_name: "eve-${{ needs.context.outputs.hv }}-${{ needs.context.outputs.arch }}-${{ needs.context.outputs.platform }}"
+      artifact_run_id: ${{ needs.context.outputs.original_run_id }}
+      eden_version: "1.0.13"
+
+  # Aggregate job to represent the test results
+  tests:
+    name: Eden Tests Complete
+    needs: [context, tests-13-4-stable, tests-14-5-stable, tests-master]
+    if: always() && needs.context.outputs.skip_run == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check test results
+        run: |
+          # Determine which job ran
+          if [[ "${{ needs.tests-13-4-stable.result }}" != "skipped" ]]; then
+            result="${{ needs.tests-13-4-stable.result }}"
+          elif [[ "${{ needs.tests-14-5-stable.result }}" != "skipped" ]]; then
+            result="${{ needs.tests-14-5-stable.result }}"
+          else
+            result="${{ needs.tests-master.result }}"
+          fi
+
+          echo "Eden tests result: $result"
+          if [[ "$result" != "success" ]]; then
+            echo "::error::Eden tests failed with result: $result"
+            exit 1
+          fi
 
   finalize:
     if: always() && needs.context.outputs.skip_run == 'false'
