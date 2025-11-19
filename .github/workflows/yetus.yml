@@ -21,6 +21,9 @@ on:  # yamllint disable-line rule:truthy
 jobs:
   yetus:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
@@ -29,7 +32,7 @@ jobs:
           fetch-depth: 0
 
       - name: Yetus
-        uses: rene/yetus-test-patch-action@eve
+        uses: rene/yetus-test-patch-action@test
         with:
           basedir: ./src
           buildtool: nobuild
