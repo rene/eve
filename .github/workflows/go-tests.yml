@@ -25,6 +25,9 @@ on:  # yamllint disable-line rule:truthy
 jobs:
   test:
     runs-on: zededa-ubuntu-2204
+    env:
+      REPO_NAME: ${{ github.event.repository.full_name }}
+      GH_REF: ${{ github.ref }}
     steps:
       - name: Starting Report
         run: |
@@ -34,9 +37,6 @@ jobs:
           df -h
           echo Memory
           free -m
-        env:
-          REPO_NAME: ${{ github.event.repository.full_name }}
-          GH_REF: ${{ github.ref }}
       - name: Clear repository
         run: |
           sudo rm -fr "$GITHUB_WORKSPACE" && mkdir "$GITHUB_WORKSPACE"
@@ -48,7 +48,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
       - name: Login to Docker Hub
-        if: ${{ env.REPO_NAME == 'lf-edge/eve' }}
+        if: ${{ env.REPO_NAME == 'rene/eve' }}
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef  # v3.6.0
         with:
           username: ${{ secrets.DOCKERHUB_PULL_USER }}
