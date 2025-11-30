@@ -4,7 +4,7 @@ go 1.22
 
 require (
 	github.com/coreos/go-semver v0.3.1
-	github.com/fsnotify/fsnotify v1.6.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/lf-edge/eve-api/go v0.0.0-20240829123634-7c8ebda876ff
