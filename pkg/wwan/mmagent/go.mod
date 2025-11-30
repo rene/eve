@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.1
 
 require (
-	github.com/godbus/dbus/v5 v5.1.0
+	github.com/godbus/dbus/v5 v5.2.0
 	github.com/lf-edge/eve/pkg/pillar v0.0.0-20251111034223-e81177b68a3e
 	github.com/miekg/dns v1.1.55
 	github.com/sirupsen/logrus v1.9.3
