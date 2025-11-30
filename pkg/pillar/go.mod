@@ -46,7 +46,7 @@ require (
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/shjala/gostats v0.0.0-20230215094906-69a32327600f
 	github.com/sirupsen/logrus v1.9.3
-	github.com/spf13/cobra v1.8.0
+	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.10.0
 	github.com/tatsushid/go-fastping v0.0.0-20160109021039-d7bb493dee3e
 	github.com/vishvananda/netlink v1.2.1-beta.2
@@ -209,7 +209,7 @@ require (
 	github.com/openshift/custom-resource-status v1.1.2 // indirect
 	github.com/pborman/uuid v1.2.1 // indirect
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.68.0 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
 	k8s.io/apiextensions-apiserver v0.28.1 // indirect
 	k8s.io/klog/v2 v2.110.1 // indirect
