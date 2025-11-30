@@ -1,11 +1,11 @@
 module t
 
-go 1.20
+go 1.24.0
 
 require (
 	github.com/miekg/dns v1.1.65
 	github.com/vishvananda/netlink v1.3.0
-	golang.org/x/sync v0.13.0
+	golang.org/x/sync v0.18.0
 )
 
 require (
