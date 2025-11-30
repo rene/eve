@@ -3,13 +3,13 @@ module github.com/lf-edge/eve/pkg/wwan/mmagent
 go 1.22
 
 require (
-	github.com/godbus/dbus/v5 v5.1.0
+	github.com/godbus/dbus/v5 v5.2.0
 	github.com/lf-edge/eve/pkg/pillar v0.0.0-20250606204414-b1f9e31984af
 	github.com/miekg/dns v1.1.55
 	github.com/sirupsen/logrus v1.9.3
 	github.com/tatsushid/go-fastping v0.0.0-20160109021039-d7bb493dee3e
 	github.com/vishvananda/netlink v1.2.1-beta.2
-	golang.org/x/sys v0.18.0
+	golang.org/x/sys v0.27.0
 )
 
 require (
