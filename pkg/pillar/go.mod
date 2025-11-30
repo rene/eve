@@ -39,7 +39,7 @@ require (
 	github.com/linuxkit/linuxkit/src/cmd/linuxkit v0.0.0-20240507172735-6d37353ca1ee
 	github.com/longhorn/longhorn-manager v1.6.0
 	github.com/miekg/dns v1.1.43
-	github.com/moby/sys/mountinfo v0.7.1
+	github.com/moby/sys/mountinfo v0.7.2
 	github.com/multiplay/go-edac v1.0.1
 	github.com/onsi/gomega v1.29.0
 	github.com/opencontainers/go-digest v1.0.0
