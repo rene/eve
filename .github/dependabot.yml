@@ -1,0 +1,90 @@
+---
+# .github/dependabot.yml: Config file for Dependabot
+# This file was automaticaly generated: DO NOT EDIT!
+#
+version: 2
+updates:
+  # gomod ecosystem
+  - package-ecosystem: "gomod"
+    directories:
+      - "pkg/debug/collect-info-test"
+      - "pkg/dnsmasq/dnstest"
+      - "pkg/edgeview"
+      - "pkg/installer/src"
+      - "pkg/kube/cert-gen"
+      - "pkg/kube/cnirpc"
+      - "pkg/kube/eve-bridge"
+      - "pkg/kube/update-component"
+      - "pkg/measure-config"
+      - "pkg/newlog"
+      - "pkg/pillar"
+      - "pkg/recovertpm/src"
+      - "pkg/rngd/cmd/rngd"
+      - "pkg/vtpm/swtpm-vtpm"
+      - "pkg/wwan/mmagent"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+    groups:
+      dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+  # gomod ecosystem
+  - package-ecosystem: "gomod"
+    directories:
+      - "pkg/debug/collect-info-test"
+      - "pkg/dnsmasq/dnstest"
+      - "pkg/edgeview"
+      - "pkg/installer/src"
+      - "pkg/kube/cert-gen"
+      - "pkg/kube/cnirpc"
+      - "pkg/kube/eve-bridge"
+      - "pkg/kube/update-component"
+      - "pkg/measure-config"
+      - "pkg/newlog"
+      - "pkg/pillar"
+      - "pkg/recovertpm/src"
+      - "pkg/rngd/cmd/rngd"
+      - "pkg/vtpm/swtpm-vtpm"
+      - "pkg/wwan/mmagent"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+    groups:
+      dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+  # gomod ecosystem
+  - package-ecosystem: "gomod"
+    directories:
+      - "pkg/debug/collect-info-test"
+      - "pkg/dnsmasq/dnstest"
+      - "pkg/edgeview"
+      - "pkg/installer/src"
+      - "pkg/kube/cert-gen"
+      - "pkg/kube/cnirpc"
+      - "pkg/kube/eve-bridge"
+      - "pkg/kube/update-component"
+      - "pkg/measure-config"
+      - "pkg/newlog"
+      - "pkg/pillar"
+      - "pkg/recovertpm/src"
+      - "pkg/rngd/cmd/rngd"
+      - "pkg/vtpm/swtpm-vtpm"
+      - "pkg/wwan/mmagent"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+    groups:
+      dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
