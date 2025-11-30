@@ -30,7 +30,7 @@ require (
 	github.com/hashicorp/go-envparse v0.1.0
 	github.com/jackwakefield/gopac v1.0.2
 	github.com/jaypipes/ghw v0.8.0
-	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.5.0
+	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.7
 	github.com/lf-edge/edge-containers v0.0.0-20251107072102-46bed3192170
 	github.com/lf-edge/eve-api/go v0.0.0-20251015130922-bab09e4f470c
 	github.com/lf-edge/eve-libs v0.0.0-20251105072030-1c066d586f1b
@@ -41,7 +41,7 @@ require (
 	github.com/miekg/dns v1.1.43
 	github.com/moby/sys/mountinfo v0.7.1
 	github.com/multiplay/go-edac v1.0.1
-	github.com/onsi/gomega v1.29.0
+	github.com/onsi/gomega v1.30.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/opencontainers/runtime-spec v1.1.0
