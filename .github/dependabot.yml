@@ -1,0 +1,255 @@
+---
+# .github/dependabot.yml: Config file for Dependabot
+# This file was automaticaly generated: DO NOT EDIT!
+#
+version: 2
+updates:
+  # gomod ecosystem
+  - package-ecosystem: "gomod"
+    directory: "pkg/debug/collect-info-test"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/dnsmasq/dnstest"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/edgeview"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/installer/src"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/kube/cert-gen"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/kube/cnirpc"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/kube/eve-bridge"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/kube/update-component"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/measure-config"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/newlog"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/pillar"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/recovertpm/src"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/rngd/cmd/rngd"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/vtpm/swtpm-vtpm"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  - package-ecosystem: "gomod"
+    directory: "pkg/wwan/mmagent"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+
+  # cargo ecosystem
+  - package-ecosystem: "cargo"
+    directory: "pkg/installer"
+    schedule:
+      interval: "daily"
+    target-branch: "master"
+  # gomod ecosystem
+  - package-ecosystem: "gomod"
+    directory: "pkg/debug/collect-info-test"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/dnsmasq/dnstest"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/edgeview"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/installer/src"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/kube/cert-gen"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/kube/cnirpc"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/kube/eve-bridge"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/kube/update-component"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/measure-config"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/newlog"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/pillar"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/recovertpm/src"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/rngd/cmd/rngd"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/vtpm/swtpm-vtpm"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/wwan/mmagent"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+
+  # cargo ecosystem
+  - package-ecosystem: "cargo"
+    directory: "pkg/installer"
+    schedule:
+      interval: "daily"
+    target-branch: "14.5-stable"
+  # gomod ecosystem
+  - package-ecosystem: "gomod"
+    directory: "pkg/debug/collect-info-test"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/dnsmasq/dnstest"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/edgeview"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/installer/src"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/kube/cert-gen"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/kube/cnirpc"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/kube/eve-bridge"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/kube/update-component"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/measure-config"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/newlog"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/pillar"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/recovertpm/src"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/rngd/cmd/rngd"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/vtpm/swtpm-vtpm"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+  - package-ecosystem: "gomod"
+    directory: "pkg/wwan/mmagent"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
+
+  # cargo ecosystem
+  - package-ecosystem: "cargo"
+    directory: "pkg/installer"
+    schedule:
+      interval: "daily"
+    target-branch: "13.4-stable"
