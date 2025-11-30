@@ -1,6 +1,6 @@
 module github.com/lf-edge/eve/pkg/edgeview
 
-go 1.22
+go 1.24.0
 
 require (
 	github.com/coreos/go-semver v0.3.1
@@ -14,7 +14,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/tatsushid/go-fastping v0.0.0-20160109021039-d7bb493dee3e
 	github.com/vishvananda/netlink v1.2.1-beta.2
-	golang.org/x/sys v0.18.0
+	golang.org/x/sys v0.38.0
 	golang.org/x/time v0.5.0
 )
 
