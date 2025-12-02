@@ -1,2319 +1,2258 @@
-// Copyright (c) 2018, Google LLC All rights reserved.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-// Package tpm2 supports direct communication with a TPM 2.0 device under Linux.
+// Package tpm2 contains TPM 2.0 commands and structures.
 package tpm2
 
 import (
 	"bytes"
-	"crypto"
-	"fmt"
-	"io"
+	"encoding/binary"
 
-	"github.com/google/go-tpm/tpmutil"
+	"github.com/google/go-tpm/tpm2/transport"
 )
 
-// GetRandom gets random bytes from the TPM.
-func GetRandom(rw io.ReadWriter, size uint16) ([]byte, error) {
-	resp, err := runCommand(rw, TagNoSessions, CmdGetRandom, size)
-	if err != nil {
-		return nil, err
-	}
-
-	var randBytes tpmutil.U16Bytes
-	if _, err := tpmutil.Unpack(resp, &randBytes); err != nil {
-		return nil, err
-	}
-	return randBytes, nil
+// handle represents a TPM handle as comprehended in Part 3: Commands.
+// In the context of TPM commands, handles are special parameters for which
+// there is a known associated name.
+// This is not an exported interface, because the reflection logic has special
+// behavior for AuthHandle, due to the fact that referencing Session from this
+// interface would break the ability to make TPMHandle implement it.
+type handle interface {
+	// HandleValue is the numeric concrete handle value in the TPM.
+	HandleValue() uint32
+	// KnownName is the TPM Name of the associated entity. See Part 1, section 16.
+	KnownName() *TPM2BName
 }
 
-// FlushContext removes an object or session under handle to be removed from
-// the TPM. This must be called for any loaded handle to avoid out-of-memory
-// errors in TPM.
-func FlushContext(rw io.ReadWriter, handle tpmutil.Handle) error {
-	_, err := runCommand(rw, TagNoSessions, CmdFlushContext, handle)
-	return err
+// NamedHandle represents an associated pairing of TPM handle and known Name.
+type NamedHandle struct {
+	Handle TPMHandle
+	Name   TPM2BName
 }
 
-func encodeTPMLPCRSelection(sel ...PCRSelection) ([]byte, error) {
-	if len(sel) == 0 {
-		return tpmutil.Pack(uint32(0))
-	}
-
-	// PCR selection is a variable-size bitmask, where position of a set bit is
-	// the selected PCR index.
-	// Size of the bitmask in bytes is pre-pended. It should be at least
-	// sizeOfPCRSelect.
-	//
-	// For example, selecting PCRs 3 and 9 looks like:
-	// size(3)  mask     mask     mask
-	// 00000011 00000000 00000001 00000100
-	var retBytes []byte
-	for _, s := range sel {
-		if len(s.PCRs) == 0 {
-			return tpmutil.Pack(uint32(0))
-		}
-
-		ts := tpmsPCRSelection{
-			Hash: s.Hash,
-			Size: sizeOfPCRSelect,
-			PCRs: make(tpmutil.RawBytes, sizeOfPCRSelect),
-		}
-
-		// s[i].PCRs parameter is indexes of PCRs, convert that to set bits.
-		for _, n := range s.PCRs {
-			if n >= 8*sizeOfPCRSelect {
-				return nil, fmt.Errorf("PCR index %d is out of range (exceeds maximum value %d)", n, 8*sizeOfPCRSelect-1)
-			}
-			byteNum := n / 8
-			bytePos := byte(1 << byte(n%8))
-			ts.PCRs[byteNum] |= bytePos
-		}
-
-		tmpBytes, err := tpmutil.Pack(ts)
-		if err != nil {
-			return nil, err
-		}
-
-		retBytes = append(retBytes, tmpBytes...)
-	}
-	tmpSize, err := tpmutil.Pack(uint32(len(sel)))
-	if err != nil {
-		return nil, err
-	}
-	retBytes = append(tmpSize, retBytes...)
-
-	return retBytes, nil
+// HandleValue implements the handle interface.
+func (h NamedHandle) HandleValue() uint32 {
+	return h.Handle.HandleValue()
 }
 
-func decodeTPMLPCRSelection(buf *bytes.Buffer) ([]PCRSelection, error) {
-	var count uint32
-	var sel []PCRSelection
-
-	// This unpacks buffer which is of type TPMLPCRSelection
-	// and returns the count of TPMSPCRSelections.
-	if err := tpmutil.UnpackBuf(buf, &count); err != nil {
-		return sel, err
-	}
-
-	var ts tpmsPCRSelection
-	for i := 0; i < int(count); i++ {
-		var s PCRSelection
-		if err := tpmutil.UnpackBuf(buf, &ts.Hash, &ts.Size); err != nil {
-			return sel, err
-		}
-		ts.PCRs = make(tpmutil.RawBytes, ts.Size)
-		if _, err := buf.Read(ts.PCRs); err != nil {
-			return sel, err
-		}
-		s.Hash = ts.Hash
-		for j := 0; j < int(ts.Size); j++ {
-			for k := 0; k < 8; k++ {
-				set := ts.PCRs[j] & byte(1<<byte(k))
-				if set == 0 {
-					continue
-				}
-				s.PCRs = append(s.PCRs, 8*j+k)
-			}
-		}
-		sel = append(sel, s)
-	}
-	if len(sel) == 0 {
-		sel = append(sel, PCRSelection{
-			Hash: AlgUnknown,
-		})
-	}
-	return sel, nil
+// KnownName implements the handle interface.
+func (h NamedHandle) KnownName() *TPM2BName {
+	return &h.Name
 }
 
-func decodeOneTPMLPCRSelection(buf *bytes.Buffer) (PCRSelection, error) {
-	sels, err := decodeTPMLPCRSelection(buf)
-	if err != nil {
-		return PCRSelection{}, err
-	}
-	if len(sels) != 1 {
-		return PCRSelection{}, fmt.Errorf("got %d TPMS_PCR_SELECTION items in TPML_PCR_SELECTION, expected 1", len(sels))
-	}
-	return sels[0], nil
+// AuthHandle allows the caller to add an authorization session onto a handle.
+type AuthHandle struct {
+	Handle TPMHandle
+	Name   TPM2BName
+	Auth   Session
 }
 
-func decodeReadPCRs(in []byte) (map[int][]byte, error) {
-	buf := bytes.NewBuffer(in)
-	var updateCounter uint32
-	if err := tpmutil.UnpackBuf(buf, &updateCounter); err != nil {
-		return nil, err
-	}
-
-	sel, err := decodeOneTPMLPCRSelection(buf)
-	if err != nil {
-		return nil, err
-	}
-
-	var digestCount uint32
-	if err = tpmutil.UnpackBuf(buf, &digestCount); err != nil {
-		return nil, fmt.Errorf("decoding TPML_DIGEST length: %v", err)
-	}
-	if int(digestCount) != len(sel.PCRs) {
-		return nil, fmt.Errorf("received %d PCRs but %d digests", len(sel.PCRs), digestCount)
-	}
-
-	vals := make(map[int][]byte)
-	for _, pcr := range sel.PCRs {
-		var val tpmutil.U16Bytes
-		if err = tpmutil.UnpackBuf(buf, &val); err != nil {
-			return nil, fmt.Errorf("decoding TPML_DIGEST item: %v", err)
-		}
-		vals[pcr] = val
-	}
-	return vals, nil
+// HandleValue implements the handle interface.
+func (h AuthHandle) HandleValue() uint32 {
+	return h.Handle.HandleValue()
 }
 
-// ReadPCRs reads PCR values from the TPM.
-// This is only a wrapper over TPM2_PCR_Read() call, thus can only return
-// at most 8 PCRs digests.
-func ReadPCRs(rw io.ReadWriter, sel PCRSelection) (map[int][]byte, error) {
-	Cmd, err := encodeTPMLPCRSelection(sel)
-	if err != nil {
-		return nil, err
+// KnownName implements the handle interface.
+// If Name is not provided (i.e., only Auth), then rely on the underlying
+// TPMHandle.
+func (h AuthHandle) KnownName() *TPM2BName {
+	if len(h.Name.Buffer) != 0 {
+		return &h.Name
 	}
-	resp, err := runCommand(rw, TagNoSessions, CmdPCRRead, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return nil, err
-	}
-
-	return decodeReadPCRs(resp)
+	return h.Handle.KnownName()
 }
 
-func decodeReadClock(in []byte) (uint64, uint64, error) {
-	var curTime, curClock uint64
+// invalidHandleValue is the sentinel value used for handles that have been
+// reconstructed from unmarshalling.
+// This value is intentionally invalid to prevent accidental use with a real TPM.
+const invalidHandleValue TPMHandle = 0xFFFFFFFF
 
-	if _, err := tpmutil.Unpack(in, &curTime, &curClock); err != nil {
-		return 0, 0, err
-	}
-	return curTime, curClock, nil
-}
-
-// ReadClock returns current clock values from the TPM.
+// UnmarshalledHandle represents a handle reconstructed from unmarshalling.
+// This type is used for audit and inspection purposes where only the Name is
+// available, not the actual TPM handle value.
 //
-// First return value is time in milliseconds since TPM was initialized (since
-// system startup).
-//
-// Second return value is time in milliseconds since TPM reset (since Storage
-// Primary Seed is changed).
-func ReadClock(rw io.ReadWriter) (uint64, uint64, error) {
-	resp, err := runCommand(rw, TagNoSessions, CmdReadClock)
-	if err != nil {
-		return 0, 0, err
-	}
-	return decodeReadClock(resp)
+// The HandleValue() method returns [invalidHandleValue] to prevent accidental
+// use of these handles with a real TPM.
+type UnmarshalledHandle struct {
+	Name TPM2BName
 }
 
-func decodeGetCapability(in []byte) ([]interface{}, bool, error) {
-	var moreData byte
-	var capReported Capability
-
-	buf := bytes.NewBuffer(in)
-	if err := tpmutil.UnpackBuf(buf, &moreData, &capReported); err != nil {
-		return nil, false, err
-	}
-
-	switch capReported {
-	case CapabilityHandles:
-		var numHandles uint32
-		if err := tpmutil.UnpackBuf(buf, &numHandles); err != nil {
-			return nil, false, fmt.Errorf("could not unpack handle count: %v", err)
-		}
-
-		var handles []interface{}
-		for i := 0; i < int(numHandles); i++ {
-			var handle tpmutil.Handle
-			if err := tpmutil.UnpackBuf(buf, &handle); err != nil {
-				return nil, false, fmt.Errorf("could not unpack handle: %v", err)
-			}
-			handles = append(handles, handle)
-		}
-		return handles, moreData > 0, nil
-	case CapabilityAlgs:
-		var numAlgs uint32
-		if err := tpmutil.UnpackBuf(buf, &numAlgs); err != nil {
-			return nil, false, fmt.Errorf("could not unpack algorithm count: %v", err)
-		}
-
-		var algs []interface{}
-		for i := 0; i < int(numAlgs); i++ {
-			var alg AlgorithmDescription
-			if err := tpmutil.UnpackBuf(buf, &alg); err != nil {
-				return nil, false, fmt.Errorf("could not unpack algorithm description: %v", err)
-			}
-			algs = append(algs, alg)
-		}
-		return algs, moreData > 0, nil
-	case CapabilityTPMProperties:
-		var numProps uint32
-		if err := tpmutil.UnpackBuf(buf, &numProps); err != nil {
-			return nil, false, fmt.Errorf("could not unpack fixed properties count: %v", err)
-		}
-
-		var props []interface{}
-		for i := 0; i < int(numProps); i++ {
-			var prop TaggedProperty
-			if err := tpmutil.UnpackBuf(buf, &prop); err != nil {
-				return nil, false, fmt.Errorf("could not unpack tagged property: %v", err)
-			}
-			props = append(props, prop)
-		}
-		return props, moreData > 0, nil
-
-	case CapabilityPCRs:
-		var pcrss []interface{}
-		pcrs, err := decodeTPMLPCRSelection(buf)
-		if err != nil {
-			return nil, false, fmt.Errorf("could not unpack pcr selection: %v", err)
-		}
-		for i := 0; i < len(pcrs); i++ {
-			pcrss = append(pcrss, pcrs[i])
-		}
-
-		return pcrss, moreData > 0, nil
-
-	default:
-		return nil, false, fmt.Errorf("unsupported capability %v", capReported)
-	}
+// HandleValue implements the handle interface.
+// Returns invalidHandleValue since unmarshalled handles don't have real TPM handle values.
+func (h UnmarshalledHandle) HandleValue() uint32 {
+	return uint32(invalidHandleValue)
 }
 
-// GetCapability returns various information about the TPM state.
-//
-// Currently only CapabilityHandles (list active handles) and CapabilityAlgs
-// (list supported algorithms) are supported. CapabilityHandles will return
-// a []tpmutil.Handle for vals, CapabilityAlgs will return
-// []AlgorithmDescription.
-//
-// moreData is true if the TPM indicated that more data is available. Follow
-// the spec for the capability in question on how to query for more data.
-func GetCapability(rw io.ReadWriter, capa Capability, count, property uint32) (vals []interface{}, moreData bool, err error) {
-	resp, err := runCommand(rw, TagNoSessions, CmdGetCapability, capa, property, count)
-	if err != nil {
-		return nil, false, err
-	}
-	return decodeGetCapability(resp)
+// KnownName implements the handle interface.
+func (h UnmarshalledHandle) KnownName() *TPM2BName {
+	return &h.Name
 }
 
-// GetManufacturer returns the manufacturer ID
-func GetManufacturer(rw io.ReadWriter) ([]byte, error) {
-	caps, _, err := GetCapability(rw, CapabilityTPMProperties, 1, uint32(Manufacturer))
+// Command is an interface for any TPM command, parameterized by its response
+// type.
+type Command[R any, PR *R] interface {
+	// The TPM command code associated with this command.
+	Command() TPMCC
+	// Executes the command and returns the response.
+	Execute(t transport.TPM, s ...Session) (PR, error)
+}
+
+// PolicyCommand is a TPM command that can be part of a TPM policy.
+type PolicyCommand interface {
+	// Update updates the given policy hash according to the command
+	// parameters.
+	Update(policy *PolicyCalculator) error
+}
+
+// Shutdown is the input to TPM2_Shutdown.
+// See definition in Part 3, Commands, section 9.4.
+type Shutdown struct {
+	// TPM_SU_CLEAR or TPM_SU_STATE
+	ShutdownType TPMSU
+}
+
+// Command implements the Command interface.
+func (Shutdown) Command() TPMCC { return TPMCCShutdown }
+
+// Execute executes the command and returns the response.
+func (cmd Shutdown) Execute(t transport.TPM, s ...Session) (*ShutdownResponse, error) {
+	var rsp ShutdownResponse
+	err := execute[ShutdownResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
 	}
-
-	prop := caps[0].(TaggedProperty)
-	return tpmutil.Pack(prop.Value)
+	return &rsp, nil
 }
 
-func encodeAuthArea(sections ...AuthCommand) ([]byte, error) {
-	var res tpmutil.RawBytes
-	for _, s := range sections {
-		buf, err := tpmutil.Pack(s)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, buf...)
-	}
+// ShutdownResponse is the response from TPM2_Shutdown.
+type ShutdownResponse struct{}
 
-	size, err := tpmutil.Pack(uint32(len(res)))
-	if err != nil {
-		return nil, err
-	}
-
-	return concat(size, res)
+// Startup is the input to TPM2_Startup.
+// See definition in Part 3, Commands, section 9.3.
+type Startup struct {
+	// TPM_SU_CLEAR or TPM_SU_STATE
+	StartupType TPMSU
 }
 
-func encodePCREvent(pcr tpmutil.Handle, eventData []byte) ([]byte, error) {
-	ha, err := tpmutil.Pack(pcr)
+// Command implements the Command interface.
+func (Startup) Command() TPMCC { return TPMCCStartup }
+
+// Execute executes the command and returns the response.
+func (cmd Startup) Execute(t transport.TPM, s ...Session) (*StartupResponse, error) {
+	var rsp StartupResponse
+	err := execute[StartupResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
 	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: EmptyAuth})
-	if err != nil {
-		return nil, err
-	}
-	event, err := tpmutil.Pack(tpmutil.U16Bytes(eventData))
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth, event)
+	return &rsp, nil
 }
 
-// PCREvent writes an update to the specified PCR.
-func PCREvent(rw io.ReadWriter, pcr tpmutil.Handle, eventData []byte) error {
-	Cmd, err := encodePCREvent(pcr, eventData)
+// StartupResponse is the response from TPM2_Startup.
+type StartupResponse struct{}
+
+// StartAuthSession is the input to TPM2_StartAuthSession.
+// See definition in Part 3, Commands, section 11.1
+type StartAuthSession struct {
+	// handle of a loaded decrypt key used to encrypt salt
+	// may be TPM_RH_NULL
+	TPMKey handle `gotpm:"handle"`
+	// entity providing the authValue
+	// may be TPM_RH_NULL
+	Bind handle `gotpm:"handle"`
+	// initial nonceCaller, sets nonceTPM size for the session
+	// shall be at least 16 octets
+	NonceCaller TPM2BNonce
+	// value encrypted according to the type of tpmKey
+	// If tpmKey is TPM_RH_NULL, this shall be the Empty Buffer.
+	EncryptedSalt TPM2BEncryptedSecret
+	// indicates the type of the session; simple HMAC or policy (including
+	// a trial policy)
+	SessionType TPMSE
+	// the algorithm and key size for parameter encryption
+	// may select transport.TPM_ALG_NULL
+	Symmetric TPMTSymDef
+	// hash algorithm to use for the session
+	// Shall be a hash algorithm supported by the TPM and not transport.TPM_ALG_NULL
+	AuthHash TPMIAlgHash
+}
+
+// Command implements the Command interface.
+func (StartAuthSession) Command() TPMCC { return TPMCCStartAuthSession }
+
+// Execute executes the command and returns the response.
+func (cmd StartAuthSession) Execute(t transport.TPM, s ...Session) (*StartAuthSessionResponse, error) {
+	var rsp StartAuthSessionResponse
+	if err := execute[StartAuthSessionResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// StartAuthSessionResponse is the response from TPM2_StartAuthSession.
+type StartAuthSessionResponse struct {
+	// handle for the newly created session
+	SessionHandle TPMISHAuthSession `gotpm:"handle"`
+	// the initial nonce from the TPM, used in the computation of the sessionKey
+	NonceTPM TPM2BNonce
+}
+
+// Create is the input to TPM2_Create.
+// See definition in Part 3, Commands, section 12.1
+type Create struct {
+	// handle of parent for new object
+	ParentHandle handle `gotpm:"handle,auth"`
+	// the sensitive data
+	InSensitive TPM2BSensitiveCreate
+	// the public template
+	InPublic TPM2BPublic
+	// data that will be included in the creation data for this
+	// object to provide permanent, verifiable linkage between this
+	// object and some object owner data
+	OutsideInfo TPM2BData
+	// PCR that will be used in creation data
+	CreationPCR TPMLPCRSelection
+}
+
+// Command implements the Command interface.
+func (Create) Command() TPMCC { return TPMCCCreate }
+
+// Execute executes the command and returns the response.
+func (cmd Create) Execute(t transport.TPM, s ...Session) (*CreateResponse, error) {
+	var rsp CreateResponse
+	if err := execute[CreateResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// CreateResponse is the response from TPM2_Create.
+type CreateResponse struct {
+	// the private portion of the object
+	OutPrivate TPM2BPrivate
+	// the public portion of the created object
+	OutPublic TPM2BPublic
+	// contains a TPMS_CREATION_DATA
+	CreationData tpm2bCreationData
+	// digest of creationData using nameAlg of outPublic
+	CreationHash TPM2BDigest
+	// ticket used by TPM2_CertifyCreation() to validate that the
+	// creation data was produced by the TPM.
+	CreationTicket TPMTTKCreation
+}
+
+// Load is the input to TPM2_Load.
+// See definition in Part 3, Commands, section 12.2
+type Load struct {
+	// handle of parent for new object
+	ParentHandle handle `gotpm:"handle,auth"`
+	// the private portion of the object
+	InPrivate TPM2BPrivate
+	// the public portion of the object
+	InPublic TPM2BPublic
+}
+
+// Command implements the Command interface.
+func (Load) Command() TPMCC { return TPMCCLoad }
+
+// Execute executes the command and returns the response.
+func (cmd Load) Execute(t transport.TPM, s ...Session) (*LoadResponse, error) {
+	var rsp LoadResponse
+	if err := execute[LoadResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// LoadResponse is the response from TPM2_Load.
+type LoadResponse struct {
+	// handle of type TPM_HT_TRANSIENT for loaded object
+	ObjectHandle TPMHandle `gotpm:"handle"`
+	// Name of the loaded object
+	Name TPM2BName
+}
+
+// LoadExternal is the input to TPM2_LoadExternal.
+// See definition in Part 3, Commands, section 12.3
+type LoadExternal struct {
+	// the sensitive portion of the object (optional)
+	InPrivate TPM2BSensitive `gotpm:"optional"`
+	// the public portion of the object
+	InPublic TPM2BPublic
+	// hierarchy with which the object area is associated
+	Hierarchy TPMIRHHierarchy `gotpm:"nullable"`
+}
+
+// Command implements the Command interface.
+func (LoadExternal) Command() TPMCC { return TPMCCLoadExternal }
+
+// Execute executes the command and returns the response.
+func (cmd LoadExternal) Execute(t transport.TPM, s ...Session) (*LoadExternalResponse, error) {
+	var rsp LoadExternalResponse
+	if err := execute[LoadExternalResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// LoadExternalResponse is the response from TPM2_LoadExternal.
+type LoadExternalResponse struct {
+	// handle of type TPM_HT_TRANSIENT for loaded object
+	ObjectHandle TPMHandle `gotpm:"handle"`
+	// Name of the loaded object
+	Name TPM2BName
+}
+
+// ReadPublic is the input to TPM2_ReadPublic.
+// See definition in Part 3, Commands, section 12.4
+type ReadPublic struct {
+	// TPM handle of an object
+	ObjectHandle TPMIDHObject `gotpm:"handle"`
+}
+
+// Command implements the Command interface.
+func (ReadPublic) Command() TPMCC { return TPMCCReadPublic }
+
+// Execute executes the command and returns the response.
+func (cmd ReadPublic) Execute(t transport.TPM, s ...Session) (*ReadPublicResponse, error) {
+	var rsp ReadPublicResponse
+	if err := execute[ReadPublicResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// ReadPublicResponse is the response from TPM2_ReadPublic.
+type ReadPublicResponse struct {
+	// structure containing the public area of an object
+	OutPublic TPM2BPublic
+	// name of object
+	Name TPM2BName
+	// the Qualified Name of the object
+	QualifiedName TPM2BName
+}
+
+// ActivateCredential is the input to TPM2_ActivateCredential.
+// See definition in Part 3, Commands, section 12.5.
+type ActivateCredential struct {
+	// handle of the object associated with certificate in credentialBlob
+	ActivateHandle handle `gotpm:"handle,auth"`
+	// loaded key used to decrypt the TPMS_SENSITIVE in credentialBlob
+	KeyHandle handle `gotpm:"handle,auth"`
+	// the credential
+	CredentialBlob TPM2BIDObject
+	// keyHandle algorithm-dependent encrypted seed that protects credentialBlob
+	Secret TPM2BEncryptedSecret
+}
+
+// Command implements the Command interface.
+func (ActivateCredential) Command() TPMCC { return TPMCCActivateCredential }
+
+// Execute executes the command and returns the response.
+func (cmd ActivateCredential) Execute(t transport.TPM, s ...Session) (*ActivateCredentialResponse, error) {
+	var rsp ActivateCredentialResponse
+	if err := execute[ActivateCredentialResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// ActivateCredentialResponse is the response from TPM2_ActivateCredential.
+type ActivateCredentialResponse struct {
+	// the decrypted certificate information
+	CertInfo TPM2BDigest
+}
+
+// MakeCredential is the input to TPM2_MakeCredential.
+// See definition in Part 3, Commands, section 12.6.
+type MakeCredential struct {
+	// loaded public area, used to encrypt the sensitive area containing the credential key
+	Handle TPMIDHObject `gotpm:"handle"`
+	// the credential information
+	Credential TPM2BDigest
+	// Name of the object to which the credential applies
+	ObjectName TPM2BName
+}
+
+// Command implements the Command interface.
+func (MakeCredential) Command() TPMCC { return TPMCCMakeCredential }
+
+// Execute executes the command and returns the response.
+func (cmd MakeCredential) Execute(t transport.TPM, s ...Session) (*MakeCredentialResponse, error) {
+	var rsp MakeCredentialResponse
+	if err := execute[MakeCredentialResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// MakeCredentialResponse is the response from TPM2_MakeCredential.
+type MakeCredentialResponse struct {
+	// the credential
+	CredentialBlob TPM2BIDObject
+	// handle algorithm-dependent data that wraps the key that encrypts credentialBlob
+	Secret TPM2BEncryptedSecret
+}
+
+// Unseal is the input to TPM2_Unseal.
+// See definition in Part 3, Commands, section 12.7
+type Unseal struct {
+	ItemHandle handle `gotpm:"handle,auth"`
+}
+
+// Command implements the Command interface.
+func (Unseal) Command() TPMCC { return TPMCCUnseal }
+
+// Execute executes the command and returns the response.
+func (cmd Unseal) Execute(t transport.TPM, s ...Session) (*UnsealResponse, error) {
+	var rsp UnsealResponse
+	if err := execute[UnsealResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// UnsealResponse is the response from TPM2_Unseal.
+type UnsealResponse struct {
+	OutData TPM2BSensitiveData
+}
+
+// ObjectChangeAuth is the input to TPM2_ObjectChangeAuth.
+// See definition in Part 3, Commands, section 12.8
+type ObjectChangeAuth struct {
+	// TPM handle of an object
+	ObjectHandle handle `gotpm:"handle,auth"`
+	// handle of the parent
+	ParentHandle handle `gotpm:"handle"`
+	// new authorization value
+	NewAuth TPM2BAuth
+}
+
+// Command implements the Command interface.
+func (ObjectChangeAuth) Command() TPMCC { return TPMCCObjectChangeAuth }
+
+// Execute executes the command and returns the response.
+func (cmd ObjectChangeAuth) Execute(t transport.TPM, s ...Session) (*ObjectChangeAuthResponse, error) {
+	var rsp ObjectChangeAuthResponse
+	if err := execute[ObjectChangeAuthResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// ObjectChangeAuthResponse the response from TPM2_ObjectChangeAuth.
+type ObjectChangeAuthResponse struct {
+	// private area containing the new authorization value
+	OutPrivate TPM2BPrivate
+}
+
+// CreateLoaded is the input to TPM2_CreateLoaded.
+// See definition in Part 3, Commands, section 12.9
+type CreateLoaded struct {
+	// Handle of a transient storage key, a persistent storage key,
+	// TPM_RH_ENDORSEMENT, TPM_RH_OWNER, TPM_RH_PLATFORM+{PP}, or TPM_RH_NULL
+	ParentHandle handle `gotpm:"handle,auth"`
+	// the sensitive data, see TPM 2.0 Part 1 Sensitive Values
+	InSensitive TPM2BSensitiveCreate
+	// the public template
+	InPublic TPM2BTemplate
+}
+
+// Command implements the Command interface.
+func (CreateLoaded) Command() TPMCC { return TPMCCCreateLoaded }
+
+// Execute executes the command and returns the response.
+func (cmd CreateLoaded) Execute(t transport.TPM, s ...Session) (*CreateLoadedResponse, error) {
+	var rsp CreateLoadedResponse
+	if err := execute[CreateLoadedResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// CreateLoadedResponse is the response from TPM2_CreateLoaded.
+type CreateLoadedResponse struct {
+	// handle of type TPM_HT_TRANSIENT for loaded object
+	ObjectHandle TPMHandle `gotpm:"handle"`
+	// the sensitive area of the object (optional)
+	OutPrivate TPM2BPrivate `gotpm:"optional"`
+	// the public portion of the created object
+	OutPublic TPM2BPublic
+	// the name of the created object
+	Name TPM2BName
+}
+
+// EncryptDecrypt2 is the input to TPM2_EncryptDecrypt2
+type EncryptDecrypt2 struct {
+	// reference to public portion of symmetric key to use for encryption
+	KeyHandle handle `gotpm:"handle,auth"`
+	Message   TPM2BMaxBuffer
+	Decrypt   TPMIYesNo
+	Mode      TPMIAlgSymMode `gotpm:"nullable"`
+	IV        TPM2BIV
+}
+
+// Command implements the Command interface.
+func (EncryptDecrypt2) Command() TPMCC { return TPMCCEncryptDecrypt2 }
+
+// Execute executes the command and returns the response.
+func (cmd EncryptDecrypt2) Execute(t transport.TPM, s ...Session) (*EncryptDecrypt2Response, error) {
+	var rsp EncryptDecrypt2Response
+	err := execute[EncryptDecrypt2Response](t, cmd, &rsp, s...)
+	if err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// EncryptDecrypt2Response is the response from TPM2_EncryptDecrypt2.
+type EncryptDecrypt2Response struct {
+	OutData TPM2BMaxBuffer
+	IV      TPM2BIV
+}
+
+// RSAEncrypt is the input to TPM2_RSA_Encrypt
+// See definition in Part 3, Commands, section 14.2.
+type RSAEncrypt struct {
+	// reference to public portion of RSA key to use for encryption
+	KeyHandle handle `gotpm:"handle"`
+	// message to be encrypted
+	Message TPM2BPublicKeyRSA
+	// the padding scheme to use if scheme associated with keyHandle is TPM_ALG_NULL
+	InScheme TPMTRSADecrypt `gotpm:"nullable"`
+	// optional label L to be associated with the message
+	Label TPM2BData `gotpm:"optional"`
+}
+
+// Command implements the Command interface.
+func (RSAEncrypt) Command() TPMCC { return TPMCCRSAEncrypt }
+
+// Execute executes the command and returns the response.
+func (cmd RSAEncrypt) Execute(t transport.TPM, s ...Session) (*RSAEncryptResponse, error) {
+	var rsp RSAEncryptResponse
+	if err := execute[RSAEncryptResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// RSAEncryptResponse is the response from TPM2_RSA_Encrypt
+type RSAEncryptResponse struct {
+	// encrypted output
+	OutData TPM2BPublicKeyRSA
+}
+
+// RSADecrypt is the input to TPM2_RSA_Decrypt
+// See definition in Part 3, Commands, section 14.3.
+type RSADecrypt struct {
+	// RSA key to use for decryption
+	KeyHandle handle `gotpm:"handle,auth"`
+	// cipher text to be decrypted
+	CipherText TPM2BPublicKeyRSA
+	// the padding scheme to use if scheme associated with keyHandle is TPM_ALG_NULL
+	InScheme TPMTRSADecrypt `gotpm:"nullable"`
+	// label whose association with the message is to be verified
+	Label TPM2BData `gotpm:"optional"`
+}
+
+// Command implements the Command interface.
+func (RSADecrypt) Command() TPMCC { return TPMCCRSADecrypt }
+
+// Execute executes the command and returns the response.
+func (cmd RSADecrypt) Execute(t transport.TPM, s ...Session) (*RSADecryptResponse, error) {
+	var rsp RSADecryptResponse
+	if err := execute[RSADecryptResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// RSADecryptResponse is the response from TPM2_RSA_Decrypt
+type RSADecryptResponse struct {
+	// decrypted output
+	Message TPM2BPublicKeyRSA
+}
+
+// ECDHZGen is the input to TPM2_ECDHZGen.
+// See definition in Part 3, Commands, section 14.5
+type ECDHZGen struct {
+	// handle of a loaded ECC key
+	KeyHandle handle `gotpm:"handle,auth"`
+	// a public key
+	InPoint TPM2BECCPoint
+}
+
+// Command implements the Command interface.
+func (ECDHZGen) Command() TPMCC { return TPMCCECDHZGen }
+
+// Execute executes the command and returns the response.
+func (cmd ECDHZGen) Execute(t transport.TPM, s ...Session) (*ECDHZGenResponse, error) {
+	var rsp ECDHZGenResponse
+	if err := execute[ECDHZGenResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// ECDHZGenResponse is the response from TPM2_ECDHZGen.
+type ECDHZGenResponse struct {
+	// X and Y coordinates of the product of the multiplication
+	OutPoint TPM2BECCPoint
+}
+
+// Hash is the input to TPM2_Hash.
+// See definition in Part 3, Commands, section 15.4
+type Hash struct {
+	//data to be hashed
+	Data TPM2BMaxBuffer
+	// algorithm for the hash being computed - shall not be TPM_ALH_NULL
+	HashAlg TPMIAlgHash
+	// hierarchy to use for the ticket (TPM_RH_NULL_allowed)
+	Hierarchy TPMIRHHierarchy `gotpm:"nullable"`
+}
+
+// Command implements the Command interface.
+func (Hash) Command() TPMCC { return TPMCCHash }
+
+// Execute executes the command and returns the response.
+func (cmd Hash) Execute(t transport.TPM, s ...Session) (*HashResponse, error) {
+	var rsp HashResponse
+	if err := execute[HashResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// HashResponse is the response from TPM2_Hash.
+type HashResponse struct {
+	// results
+	OutHash TPM2BDigest
+	// ticket indicating that the sequence of octets used to
+	// compute outDigest did not start with TPM_GENERATED_VALUE
+	Validation TPMTTKHashCheck
+}
+
+// Hmac is the input to TPM2_HMAC.
+// See definition in Part 3, Commands, section 15.5.
+type Hmac struct {
+	// HMAC key handle requiring an authorization session for the USER role
+	Handle AuthHandle `gotpm:"handle,auth"`
+	// HMAC data
+	Buffer TPM2BMaxBuffer
+	// Algorithm to use for HMAC
+	HashAlg TPMIAlgHash
+}
+
+// Command implements the Command interface.
+func (Hmac) Command() TPMCC { return TPMCCHMAC }
+
+// Execute executes the command and returns the response.
+func (cmd Hmac) Execute(t transport.TPM, s ...Session) (*HmacResponse, error) {
+	var rsp HmacResponse
+	if err := execute[HmacResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// HmacResponse is the response from TPM2_HMAC.
+type HmacResponse struct {
+	// the returned HMAC in a sized buffer
+	OutHMAC TPM2BDigest
+}
+
+// GetRandom is the input to TPM2_GetRandom.
+// See definition in Part 3, Commands, section 16.1
+type GetRandom struct {
+	// number of octets to return
+	BytesRequested uint16
+}
+
+// Command implements the Command interface.
+func (GetRandom) Command() TPMCC { return TPMCCGetRandom }
+
+// Execute executes the command and returns the response.
+func (cmd GetRandom) Execute(t transport.TPM, s ...Session) (*GetRandomResponse, error) {
+	var rsp GetRandomResponse
+	if err := execute[GetRandomResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// GetRandomResponse is the response from TPM2_GetRandom.
+type GetRandomResponse struct {
+	// the random octets
+	RandomBytes TPM2BDigest
+}
+
+// HashSequenceStart is the input to TPM2_HashSequenceStart.
+// See definition in Part 3, Commands, section 17.3
+type HashSequenceStart struct {
+	// authorization value for subsequent use of the sequence
+	Auth TPM2BAuth
+	// the hash algorithm to use for the hash sequence
+	// An Event Sequence starts if this is TPM_ALG_NULL.
+	HashAlg TPMIAlgHash
+}
+
+// Command implements the Command interface.
+func (HashSequenceStart) Command() TPMCC { return TPMCCHashSequenceStart }
+
+// Execute executes the command and returns the response.
+func (cmd HashSequenceStart) Execute(t transport.TPM, s ...Session) (*HashSequenceStartResponse, error) {
+	var rsp HashSequenceStartResponse
+	if err := execute[HashSequenceStartResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// HashSequenceStartResponse is the response from TPM2_StartHashSequence.
+type HashSequenceStartResponse struct {
+	// a handle to reference the sequence
+	SequenceHandle TPMIDHObject
+}
+
+// HmacStart is the input to TPM2_HMAC_Start.
+// See definition in Part 3, Commands, section 17.2.2
+type HmacStart struct {
+	// HMAC key handle
+	Handle handle `gotpm:"handle,auth"`
+	// authorization value for subsequent use of the sequence
+	Auth TPM2BAuth
+	// the hash algorithm to use for the hmac sequence
+	HashAlg TPMIAlgHash `gotpm:"nullable"`
+}
+
+// Command implements the Command interface.
+func (HmacStart) Command() TPMCC { return TPMCCHMACStart }
+
+// Execute executes the command and returns the response.
+func (cmd HmacStart) Execute(t transport.TPM, s ...Session) (*HmacStartResponse, error) {
+	var rsp HmacStartResponse
+	if err := execute[HmacStartResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// HmacStartResponse is the response from TPM2_HMAC_Start.
+// See definition in Part 3, Commands, section 17.2.2
+type HmacStartResponse struct {
+	// a handle to reference the sequence
+	SequenceHandle TPMIDHObject `gotpm:"handle"`
+}
+
+// SequenceUpdate is the input to TPM2_SequenceUpdate.
+// See definition in Part 3, Commands, section 17.4
+type SequenceUpdate struct {
+	// handle for the sequence object
+	SequenceHandle handle `gotpm:"handle,auth,anon"`
+	// data to be added to hash
+	Buffer TPM2BMaxBuffer
+}
+
+// Command implements the Command interface.
+func (SequenceUpdate) Command() TPMCC { return TPMCCSequenceUpdate }
+
+// Execute executes the command and returns the response.
+func (cmd SequenceUpdate) Execute(t transport.TPM, s ...Session) (*SequenceUpdateResponse, error) {
+	var rsp SequenceUpdateResponse
+	if err := execute[SequenceUpdateResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// SequenceUpdateResponse is the response from TPM2_SequenceUpdate.
+type SequenceUpdateResponse struct{}
+
+// SequenceComplete is the input to TPM2_SequenceComplete.
+// See definition in Part 3, Commands, section 17.5
+type SequenceComplete struct {
+	// authorization for the sequence
+	SequenceHandle handle `gotpm:"handle,auth,anon"`
+	// data to be added to the hash/HMAC
+	Buffer TPM2BMaxBuffer
+	// hierarchy of the ticket for a hash
+	Hierarchy TPMIRHHierarchy `gotpm:"nullable"`
+}
+
+// Command implements the Command interface.
+func (SequenceComplete) Command() TPMCC { return TPMCCSequenceComplete }
+
+// Execute executes the command and returns the response.
+func (cmd SequenceComplete) Execute(t transport.TPM, s ...Session) (*SequenceCompleteResponse, error) {
+	var rsp SequenceCompleteResponse
+	if err := execute[SequenceCompleteResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// SequenceCompleteResponse is the response from TPM2_SequenceComplete.
+type SequenceCompleteResponse struct {
+	// the returned HMAC or digest in a sized buffer
+	Result TPM2BDigest
+	// 	ticket indicating that the sequence of octets used to
+	// compute outDigest did not start with TPM_GENERATED_VALUE
+	Validation TPMTTKHashCheck
+}
+
+// Certify is the input to TPM2_Certify.
+// See definition in Part 3, Commands, section 18.2.
+type Certify struct {
+	// handle of the object to be certified
+	ObjectHandle handle `gotpm:"handle,auth"`
+	// handle of the key used to sign the attestation structure
+	SignHandle handle `gotpm:"handle,auth"`
+	// user provided qualifying data
+	QualifyingData TPM2BData
+	// signing scheme to use if the scheme for signHandle is TPM_ALG_NULL
+	InScheme TPMTSigScheme
+}
+
+// Command implements the Command interface.
+func (Certify) Command() TPMCC { return TPMCCCertify }
+
+// Execute executes the command and returns the response.
+func (cmd Certify) Execute(t transport.TPM, s ...Session) (*CertifyResponse, error) {
+	var rsp CertifyResponse
+	if err := execute[CertifyResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// CertifyResponse is the response from TPM2_Certify.
+type CertifyResponse struct {
+	// the structure that was signed
+	CertifyInfo TPM2BAttest
+	// the asymmetric signature over certifyInfo using the key referenced by signHandle
+	Signature TPMTSignature
+}
+
+// CertifyCreation is the input to TPM2_CertifyCreation.
+// See definition in Part 3, Commands, section 18.3.
+type CertifyCreation struct {
+	// handle of the key that will sign the attestation block
+	SignHandle handle `gotpm:"handle,auth"`
+	// the object associated with the creation data
+	ObjectHandle handle `gotpm:"handle"`
+	// user-provided qualifying data
+	QualifyingData TPM2BData
+	// hash of the creation data produced by TPM2_Create() or TPM2_CreatePrimary()
+	CreationHash TPM2BDigest
+	// signing scheme to use if the scheme for signHandle is TPM_ALG_NULL
+	InScheme TPMTSigScheme
+	// ticket produced by TPM2_Create() or TPM2_CreatePrimary()
+	CreationTicket TPMTTKCreation
+}
+
+// Command implements the Command interface.
+func (CertifyCreation) Command() TPMCC { return TPMCCCertifyCreation }
+
+// Execute executes the command and returns the response.
+func (cmd CertifyCreation) Execute(t transport.TPM, s ...Session) (*CertifyCreationResponse, error) {
+	var rsp CertifyCreationResponse
+	if err := execute[CertifyCreationResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// CertifyCreationResponse is the response from TPM2_CertifyCreation.
+type CertifyCreationResponse struct {
+	// the structure that was signed
+	CertifyInfo TPM2BAttest
+	// the signature over certifyInfo
+	Signature TPMTSignature
+}
+
+// Quote is the input to TPM2_Quote.
+// See definition in Part 3, Commands, section 18.4
+type Quote struct {
+	// handle of key that will perform signature
+	SignHandle handle `gotpm:"handle,auth"`
+	// data supplied by the caller
+	QualifyingData TPM2BData
+	// signing scheme to use if the scheme for signHandle is TPM_ALG_NULL
+	InScheme TPMTSigScheme
+	// PCR set to quote
+	PCRSelect TPMLPCRSelection
+}
+
+// Command implements the Command interface.
+func (Quote) Command() TPMCC { return TPMCCQuote }
+
+// Execute executes the command and returns the response.
+func (cmd Quote) Execute(t transport.TPM, s ...Session) (*QuoteResponse, error) {
+	var rsp QuoteResponse
+	if err := execute[QuoteResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// QuoteResponse is the response from TPM2_Quote.
+type QuoteResponse struct {
+	// the quoted information
+	Quoted TPM2BAttest
+	// the signature over quoted
+	Signature TPMTSignature
+}
+
+// GetSessionAuditDigest is the input to TPM2_GetSessionAuditDigest.
+// See definition in Part 3, Commands, section 18.5
+type GetSessionAuditDigest struct {
+	// handle of the privacy administrator (TPM_RH_ENDORSEMENT)
+	PrivacyAdminHandle handle `gotpm:"handle,auth"`
+	// handle of the signing key
+	SignHandle handle `gotpm:"handle,auth"`
+	// handle of the audit session
+	SessionHandle handle `gotpm:"handle"`
+	// user-provided qualifying data – may be zero-length
+	QualifyingData TPM2BData
+	// signing scheme to use if the scheme for signHandle is TPM_ALG_NULL
+	InScheme TPMTSigScheme
+}
+
+// Command implements the Command interface.
+func (GetSessionAuditDigest) Command() TPMCC { return TPMCCGetSessionAuditDigest }
+
+// Execute executes the command and returns the response.
+func (cmd GetSessionAuditDigest) Execute(t transport.TPM, s ...Session) (*GetSessionAuditDigestResponse, error) {
+	var rsp GetSessionAuditDigestResponse
+	if err := execute[GetSessionAuditDigestResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// GetSessionAuditDigestResponse is the response from
+// TPM2_GetSessionAuditDigest.
+type GetSessionAuditDigestResponse struct {
+	// the audit information that was signed
+	AuditInfo TPM2BAttest
+	// the signature over auditInfo
+	Signature TPMTSignature
+}
+
+// Commit is the input to TPM2_Commit.
+// See definition in Part 3, Commands, section 19.2.
+type Commit struct {
+	// handle of the key that will be used in the signing operation
+	SignHandle handle `gotpm:"handle,auth"`
+	// a point (M) on the curve used by signHandle
+	P1 TPM2BECCPoint
+	// octet array used to derive x-coordinate of a base point
+	S2 TPM2BSensitiveData
+	// y coordinate of the point associated with s2
+	Y2 TPM2BECCParameter
+}
+
+// Command implements the Command interface.
+func (Commit) Command() TPMCC { return TPMCCCommit }
+
+// Execute executes the command and returns the response.
+func (cmd Commit) Execute(t transport.TPM, s ...Session) (*CommitResponse, error) {
+	var rsp CommitResponse
+	if err := execute[CommitResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+
+	return &rsp, nil
+}
+
+// CommitResponse is the response from TPM2_Commit.
+type CommitResponse struct {
+	// ECC point K ≔ [ds](x2, y2)
+	K TPM2BECCPoint
+	// ECC point L ≔ [r](x2, y2)
+	L TPM2BECCPoint
+	// ECC point E ≔ [r]P1
+	E TPM2BECCPoint
+	// least-significant 16 bits of commitCount
+	Counter uint16
+}
+
+// VerifySignature is the input to TPM2_VerifySignature.
+// See definition in Part 3, Commands, section 20.1
+type VerifySignature struct {
+	// handle of public key that will be used in the validation
+	KeyHandle handle `gotpm:"handle"`
+	// digest of the signed message
+	Digest TPM2BDigest
+	// signature to be tested
+	Signature TPMTSignature
+}
+
+// Command implements the Command interface.
+func (VerifySignature) Command() TPMCC { return TPMCCVerifySignature }
+
+// Execute executes the command and returns the response.
+func (cmd VerifySignature) Execute(t transport.TPM, s ...Session) (*VerifySignatureResponse, error) {
+	var rsp VerifySignatureResponse
+	if err := execute[VerifySignatureResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// VerifySignatureResponse is the response from TPM2_VerifySignature.
+type VerifySignatureResponse struct {
+	Validation TPMTTKVerified
+}
+
+// Sign is the input to TPM2_Sign.
+// See definition in Part 3, Commands, section 20.2.
+type Sign struct {
+	// Handle of key that will perform signing
+	KeyHandle handle `gotpm:"handle,auth"`
+	// digest to be signed
+	Digest TPM2BDigest
+	// signing scheme to use if the scheme for keyHandle is TPM_ALG_NULL
+	InScheme TPMTSigScheme `gotpm:"nullable"`
+	// proof that digest was created by the TPM.
+	// If keyHandle is not a restricted signing key, then this
+	// may be a NULL Ticket with tag = TPM_ST_CHECKHASH.
+	Validation TPMTTKHashCheck
+}
+
+// Command implements the Command interface.
+func (Sign) Command() TPMCC { return TPMCCSign }
+
+// Execute executes the command and returns the response.
+func (cmd Sign) Execute(t transport.TPM, s ...Session) (*SignResponse, error) {
+	var rsp SignResponse
+	if err := execute[SignResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// SignResponse is the response from TPM2_Sign.
+type SignResponse struct {
+	// the signature
+	Signature TPMTSignature
+}
+
+// PCRExtend is the input to TPM2_PCR_Extend.
+// See definition in Part 3, Commands, section 22.2
+type PCRExtend struct {
+	// handle of the PCR
+	PCRHandle handle `gotpm:"handle,auth"`
+	// list of tagged digest values to be extended
+	Digests TPMLDigestValues
+}
+
+// Command implements the Command interface.
+func (PCRExtend) Command() TPMCC { return TPMCCPCRExtend }
+
+// Execute executes the command and returns the response.
+func (cmd PCRExtend) Execute(t transport.TPM, s ...Session) (*PCRExtendResponse, error) {
+	var rsp PCRExtendResponse
+	err := execute[PCRExtendResponse](t, cmd, &rsp, s...)
+	if err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// PCRExtendResponse is the response from TPM2_PCR_Extend.
+type PCRExtendResponse struct{}
+
+// PCREvent is the input to TPM2_PCR_Event.
+// See definition in Part 3, Commands, section 22.3
+type PCREvent struct {
+	// Handle of the PCR
+	PCRHandle handle `gotpm:"handle,auth"`
+	// Event data in sized buffer
+	EventData TPM2BEvent
+}
+
+// Command implements the Command interface.
+func (PCREvent) Command() TPMCC { return TPMCCPCREvent }
+
+// Execute executes the command and returns the response.
+func (cmd PCREvent) Execute(t transport.TPM, s ...Session) (*PCREventResponse, error) {
+	var rsp PCREventResponse
+	err := execute[PCREventResponse](t, cmd, &rsp, s...)
+	if err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// PCREventResponse is the response from TPM2_PCR_Event.
+type PCREventResponse struct{}
+
+// PCRRead is the input to TPM2_PCR_Read.
+// See definition in Part 3, Commands, section 22.4
+type PCRRead struct {
+	// The selection of PCR to read
+	PCRSelectionIn TPMLPCRSelection
+}
+
+// Command implements the Command interface.
+func (PCRRead) Command() TPMCC { return TPMCCPCRRead }
+
+// Execute executes the command and returns the response.
+func (cmd PCRRead) Execute(t transport.TPM, s ...Session) (*PCRReadResponse, error) {
+	var rsp PCRReadResponse
+	if err := execute[PCRReadResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// PCRReadResponse is the response from TPM2_PCR_Read.
+type PCRReadResponse struct {
+	// the current value of the PCR update counter
+	PCRUpdateCounter uint32
+	// the PCR in the returned list
+	PCRSelectionOut TPMLPCRSelection
+	// the contents of the PCR indicated in pcrSelectOut-> pcrSelection[] as tagged digests
+	PCRValues TPMLDigest
+}
+
+// PCRReset is the input to TPM2_PCRReset.
+// See definition in Part 3, Commands, section 22.8.
+type PCRReset struct {
+	// the PCR to reset
+	PCRHandle handle `gotpm:"handle,auth"`
+}
+
+// Command implements the Command interface.
+func (PCRReset) Command() TPMCC { return TPMCCPCRReset }
+
+// Execute executes the command and returns the response.
+func (cmd PCRReset) Execute(t transport.TPM, s ...Session) (*PCRResetResponse, error) {
+	var rsp PCRResetResponse
+	if err := execute[PCRResetResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// PCRResetResponse is the response from TPM2_PCRReset.
+type PCRResetResponse struct{}
+
+// PolicySigned is the input to TPM2_PolicySigned.
+// See definition in Part 3, Commands, section 23.3.
+type PolicySigned struct {
+	// handle for an entity providing the authorization
+	AuthObject handle `gotpm:"handle"`
+	// handle for the policy session being extended
+	PolicySession handle `gotpm:"handle"`
+	// the policy nonce for the session
+	NonceTPM TPM2BNonce
+	// digest of the command parameters to which this authorization is limited
+	CPHashA TPM2BDigest
+	// a reference to a policy relating to the authorization – may be the Empty Buffer
+	PolicyRef TPM2BNonce
+	// time when authorization will expire, measured in seconds from the time
+	// that nonceTPM was generated
+	Expiration int32
+	// signed authorization (not optional)
+	Auth TPMTSignature
+}
+
+// Command implements the Command interface.
+func (PolicySigned) Command() TPMCC { return TPMCCPolicySigned }
+
+// Execute executes the command and returns the response.
+func (cmd PolicySigned) Execute(t transport.TPM, s ...Session) (*PolicySignedResponse, error) {
+	var rsp PolicySignedResponse
+	if err := execute[PolicySignedResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// policyUpdate implements the PolicyUpdate helper for the several TPM policy
+// commands as described in Part 3, 23.2.3.
+func policyUpdate(policy *PolicyCalculator, cc TPMCC, arg2, arg3 []byte) error {
+	if err := policy.Update(cc, arg2); err != nil {
+		return err
+	}
+	return policy.Update(arg3)
+}
+
+// Update implements the PolicyCommand interface.
+func (cmd PolicySigned) Update(policy *PolicyCalculator) error {
+	return policyUpdate(policy, TPMCCPolicySigned, cmd.AuthObject.KnownName().Buffer, cmd.PolicyRef.Buffer)
+}
+
+// PolicySignedResponse is the response from TPM2_PolicySigned.
+type PolicySignedResponse struct {
+	// implementation-specific time value used to indicate to the TPM when the ticket expires
+	Timeout TPM2BTimeout
+	// produced if the command succeeds and expiration in the command was non-zero
+	PolicyTicket TPMTTKAuth
+}
+
+// PolicySecret is the input to TPM2_PolicySecret.
+// See definition in Part 3, Commands, section 23.4.
+type PolicySecret struct {
+	// handle for an entity providing the authorization
+	AuthHandle handle `gotpm:"handle,auth"`
+	// handle for the policy session being extended
+	PolicySession handle `gotpm:"handle"`
+	// the policy nonce for the session
+	NonceTPM TPM2BNonce
+	// digest of the command parameters to which this authorization is limited
+	CPHashA TPM2BDigest
+	// a reference to a policy relating to the authorization – may be the Empty Buffer
+	PolicyRef TPM2BNonce
+	// time when authorization will expire, measured in seconds from the time
+	// that nonceTPM was generated
+	Expiration int32
+}
+
+// Command implements the Command interface.
+func (PolicySecret) Command() TPMCC { return TPMCCPolicySecret }
+
+// Execute executes the command and returns the response.
+func (cmd PolicySecret) Execute(t transport.TPM, s ...Session) (*PolicySecretResponse, error) {
+	var rsp PolicySecretResponse
+	if err := execute[PolicySecretResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// Update implements the PolicyCommand interface.
+func (cmd PolicySecret) Update(policy *PolicyCalculator) error {
+	return policyUpdate(policy, TPMCCPolicySecret, cmd.AuthHandle.KnownName().Buffer, cmd.PolicyRef.Buffer)
+}
+
+// PolicySecretResponse is the response from TPM2_PolicySecret.
+type PolicySecretResponse struct {
+	// implementation-specific time value used to indicate to the TPM when the ticket expires
+	Timeout TPM2BTimeout
+	// produced if the command succeeds and expiration in the command was non-zero
+	PolicyTicket TPMTTKAuth
+}
+
+// PolicyOr is the input to TPM2_PolicyOR.
+// See definition in Part 3, Commands, section 23.6.
+type PolicyOr struct {
+	// handle for the policy session being extended
+	PolicySession handle `gotpm:"handle"`
+	// the list of hashes to check for a match
+	PHashList TPMLDigest
+}
+
+// Command implements the Command interface.
+func (PolicyOr) Command() TPMCC { return TPMCCPolicyOR }
+
+// Execute executes the command and returns the response.
+func (cmd PolicyOr) Execute(t transport.TPM, s ...Session) (*PolicyOrResponse, error) {
+	var rsp PolicyOrResponse
+	err := execute[PolicyOrResponse](t, cmd, &rsp, s...)
+	if err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// Update implements the PolicyCommand interface.
+func (cmd PolicyOr) Update(policy *PolicyCalculator) error {
+	policy.Reset()
+	var digests bytes.Buffer
+	for _, digest := range cmd.PHashList.Digests {
+		digests.Write(digest.Buffer)
+	}
+	return policy.Update(TPMCCPolicyOR, digests.Bytes())
+}
+
+// PolicyOrResponse is the response from TPM2_PolicyOr.
+type PolicyOrResponse struct{}
+
+// PolicyPCR is the input to TPM2_PolicyPCR.
+// See definition in Part 3, Commands, section 23.7.
+type PolicyPCR struct {
+	// handle for the policy session being extended
+	PolicySession handle `gotpm:"handle"`
+	// expected digest value of the selected PCR using the
+	// hash algorithm of the session; may be zero length
+	PcrDigest TPM2BDigest
+	// the PCR to include in the check digest
+	Pcrs TPMLPCRSelection
+}
+
+// Command implements the Command interface.
+func (PolicyPCR) Command() TPMCC { return TPMCCPolicyPCR }
+
+// Execute executes the command and returns the response.
+func (cmd PolicyPCR) Execute(t transport.TPM, s ...Session) (*PolicyPCRResponse, error) {
+	var rsp PolicyPCRResponse
+	err := execute[PolicyPCRResponse](t, cmd, &rsp, s...)
+	if err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// Update implements the PolicyCommand interface.
+func (cmd PolicyPCR) Update(policy *PolicyCalculator) error {
+	return policy.Update(TPMCCPolicyPCR, cmd.Pcrs, cmd.PcrDigest.Buffer)
+}
+
+// PolicyPCRResponse is the response from TPM2_PolicyPCR.
+type PolicyPCRResponse struct{}
+
+// PolicyAuthValue is the input to TPM2_PolicyAuthValue.
+// See definition in Part 3, Commands, section 23.17.
+type PolicyAuthValue struct {
+	// handle for the policy session being extended
+	PolicySession handle `gotpm:"handle"`
+}
+
+// Command implements the Command interface.
+func (PolicyAuthValue) Command() TPMCC { return TPMCCPolicyAuthValue }
+
+// Execute executes the command and returns the response.
+func (cmd PolicyAuthValue) Execute(t transport.TPM, s ...Session) (*PolicyAuthValueResponse, error) {
+	var rsp PolicyAuthValueResponse
+	err := execute[PolicyAuthValueResponse](t, cmd, &rsp, s...)
+	if err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// Update implements the PolicyAuthValue interface.
+func (cmd PolicyAuthValue) Update(policy *PolicyCalculator) error {
+	return policy.Update(TPMCCPolicyAuthValue)
+}
+
+// PolicyAuthValueResponse is the response from TPM2_PolicyAuthValue.
+type PolicyAuthValueResponse struct{}
+
+// PolicyDuplicationSelect is the input to TPM2_PolicyDuplicationSelect.
+// See definition in Part 3, Commands, section 23.15.
+type PolicyDuplicationSelect struct {
+	// handle for the policy session being extended
+	PolicySession handle `gotpm:"handle"`
+	ObjectName    TPM2BName
+	NewParentName TPM2BName
+	IncludeObject TPMIYesNo
+}
+
+// Command implements the Command interface.
+func (PolicyDuplicationSelect) Command() TPMCC { return TPMCCPolicyDuplicationSelect }
+
+// Execute executes the command and returns the response.
+func (cmd PolicyDuplicationSelect) Execute(t transport.TPM, s ...Session) (*PolicyDuplicationSelectResponse, error) {
+	var rsp PolicyDuplicationSelectResponse
+	err := execute[PolicyDuplicationSelectResponse](t, cmd, &rsp, s...)
+	if err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// Update implements the PolicyDuplicationSelect interface.
+func (cmd PolicyDuplicationSelect) Update(policy *PolicyCalculator) error {
+	if cmd.IncludeObject {
+		return policy.Update(TPMCCPolicyDuplicationSelect, cmd.ObjectName.Buffer, cmd.NewParentName.Buffer, cmd.IncludeObject)
+	}
+	return policy.Update(TPMCCPolicyDuplicationSelect, cmd.NewParentName.Buffer, cmd.IncludeObject)
+}
+
+// PolicyDuplicationSelectResponse is the response from TPM2_PolicyDuplicationSelect.
+type PolicyDuplicationSelectResponse struct{}
+
+// PolicyNV is the input to TPM2_PolicyNV.
+// See definition in Part 3, Commands, section 23.9.
+type PolicyNV struct {
+	// handle indicating the source of the authorization value
+	AuthHandle handle `gotpm:"handle,auth"`
+	// the NV Index of the area to read
+	NVIndex handle `gotpm:"handle"`
+	// handle for the policy session being extended
+	PolicySession handle `gotpm:"handle"`
+	// the second operand
+	OperandB TPM2BOperand
+	// the octet offset in the NV Index for the start of operand A
+	Offset uint16
+	// the comparison to make
+	Operation TPMEO
+}
+
+// Command implements the Command interface.
+func (PolicyNV) Command() TPMCC { return TPMCCPolicyNV }
+
+// Execute executes the command and returns the response.
+func (cmd PolicyNV) Execute(t transport.TPM, s ...Session) (*PolicyNVResponse, error) {
+	var rsp PolicyNVResponse
+	err := execute[PolicyNVResponse](t, cmd, &rsp, s...)
+	if err != nil {
+		return nil, err
+	}
+	return &rsp, nil
+}
+
+// Update implements the PolicyCommand interface.
+func (cmd PolicyNV) Update(policy *PolicyCalculator) error {
+	alg, err := policy.alg.Hash()
 	if err != nil {
 		return err
 	}
-	_, err = runCommand(rw, TagSessions, CmdPCREvent, tpmutil.RawBytes(Cmd))
-	return err
+	h := alg.New()
+	h.Write(cmd.OperandB.Buffer)
+	binary.Write(h, binary.BigEndian, cmd.Offset)
+	binary.Write(h, binary.BigEndian, cmd.Operation)
+	args := h.Sum(nil)
+	return policy.Update(TPMCCPolicyNV, args, cmd.NVIndex.KnownName().Buffer)
 }
 
-func encodeSensitiveArea(s tpmsSensitiveCreate) ([]byte, error) {
-	// TPMS_SENSITIVE_CREATE
-	buf, err := tpmutil.Pack(s)
-	if err != nil {
-		return nil, err
-	}
-	// TPM2B_SENSITIVE_CREATE
-	return tpmutil.Pack(tpmutil.U16Bytes(buf))
+// PolicyNVResponse is the response from TPM2_PolicyPCR.
+type PolicyNVResponse struct{}
+
+// PolicyCommandCode is the input to TPM2_PolicyCommandCode.
+// See definition in Part 3, Commands, section 23.11.
+type PolicyCommandCode struct {
+	// handle for the policy session being extended
+	PolicySession handle `gotpm:"handle"`
+	// the allowed commandCode
+	Code TPMCC
 }
 
-// encodeCreate works for both TPM2_Create and TPM2_CreatePrimary.
-func encodeCreate(owner tpmutil.Handle, sel PCRSelection, auth AuthCommand, ownerPassword string, sensitiveData []byte, pub Public, outsideInfo []byte) ([]byte, error) {
-	parent, err := tpmutil.Pack(owner)
-	if err != nil {
-		return nil, err
-	}
-	encodedAuth, err := encodeAuthArea(auth)
-	if err != nil {
-		return nil, err
-	}
-	inSensitive, err := encodeSensitiveArea(tpmsSensitiveCreate{
-		UserAuth: []byte(ownerPassword),
-		Data:     sensitiveData,
-	})
-	if err != nil {
-		return nil, err
-	}
-	inPublic, err := pub.Encode()
-	if err != nil {
-		return nil, err
-	}
-	publicBlob, err := tpmutil.Pack(tpmutil.U16Bytes(inPublic))
-	if err != nil {
-		return nil, err
-	}
-	outsideInfoBlob, err := tpmutil.Pack(tpmutil.U16Bytes(outsideInfo))
-	if err != nil {
-		return nil, err
-	}
-	creationPCR, err := encodeTPMLPCRSelection(sel)
+// Command implements the Command interface.
+func (PolicyCommandCode) Command() TPMCC { return TPMCCPolicyCommandCode }
+
+// Execute executes the command and returns the response.
+func (cmd PolicyCommandCode) Execute(t transport.TPM, s ...Session) (*PolicyCommandCodeResponse, error) {
+	var rsp PolicyCommandCodeResponse
+	err := execute[PolicyCommandCodeResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
-	}
-	return concat(
-		parent,
-		encodedAuth,
-		inSensitive,
-		publicBlob,
-		outsideInfoBlob,
-		creationPCR,
-	)
-}
-
-func decodeCreatePrimary(in []byte) (handle tpmutil.Handle, public, creationData, creationHash tpmutil.U16Bytes, ticket Ticket, creationName tpmutil.U16Bytes, err error) {
-	var paramSize uint32
-
-	buf := bytes.NewBuffer(in)
-	// Handle and auth data.
-	if err := tpmutil.UnpackBuf(buf, &handle, &paramSize); err != nil {
-		return 0, nil, nil, nil, Ticket{}, nil, fmt.Errorf("decoding handle, paramSize: %v", err)
 	}
-
-	if err := tpmutil.UnpackBuf(buf, &public, &creationData, &creationHash, &ticket, &creationName); err != nil {
-		return 0, nil, nil, nil, Ticket{}, nil, fmt.Errorf("decoding public, creationData, creationHash, ticket, creationName: %v", err)
-	}
+	return &rsp, nil
+}
 
-	if _, err := DecodeCreationData(creationData); err != nil {
-		return 0, nil, nil, nil, Ticket{}, nil, fmt.Errorf("parsing CreationData: %v", err)
-	}
-	return handle, public, creationData, creationHash, ticket, creationName, err
+// Update implements the PolicyCommand interface.
+func (cmd PolicyCommandCode) Update(policy *PolicyCalculator) error {
+	return policy.Update(TPMCCPolicyCommandCode, cmd.Code)
 }
 
-// CreatePrimary initializes the primary key in a given hierarchy.
-// The second return value is the public part of the generated key.
-func CreatePrimary(rw io.ReadWriter, owner tpmutil.Handle, sel PCRSelection, parentPassword, ownerPassword string, p Public) (tpmutil.Handle, crypto.PublicKey, error) {
-	hnd, public, _, _, _, _, err := CreatePrimaryEx(rw, owner, sel, parentPassword, ownerPassword, p)
-	if err != nil {
-		return 0, nil, err
-	}
+// PolicyCommandCodeResponse is the response from TPM2_PolicyCommandCode.
+type PolicyCommandCodeResponse struct{}
 
-	pub, err := DecodePublic(public)
-	if err != nil {
-		return 0, nil, fmt.Errorf("parsing public: %v", err)
-	}
+// PolicyCPHash is the input to TPM2_PolicyCpHash.
+// See definition in Part 3, Commands, section 23.13.
+type PolicyCPHash struct {
+	// handle for the policy session being extended
+	PolicySession handle `gotpm:"handle"`
+	// the cpHash added to the policy
+	CPHashA TPM2BDigest
+}
+
+// Command implements the Command interface.
+func (PolicyCPHash) Command() TPMCC { return TPMCCPolicyCpHash }
 
-	pubKey, err := pub.Key()
+// Execute executes the command and returns the response.
+func (cmd PolicyCPHash) Execute(t transport.TPM, s ...Session) (*PolicyCPHashResponse, error) {
+	var rsp PolicyCPHashResponse
+	err := execute[PolicyCPHashResponse](t, cmd, &rsp, s...)
 	if err != nil {
-		return 0, nil, fmt.Errorf("extracting cryto.PublicKey from Public part of primary key: %v", err)
+		return nil, err
 	}
+	return &rsp, nil
+}
 
-	return hnd, pubKey, err
+// Update implements the PolicyCommand interface.
+func (cmd PolicyCPHash) Update(policy *PolicyCalculator) error {
+	return policy.Update(TPMCCPolicyCpHash, cmd.CPHashA.Buffer)
 }
 
-// CreatePrimaryEx initializes the primary key in a given hierarchy.
-// This function differs from CreatePrimary in that all response elements
-// are returned, and they are returned in relatively raw form.
-func CreatePrimaryEx(rw io.ReadWriter, owner tpmutil.Handle, sel PCRSelection, parentPassword, ownerPassword string, pub Public) (keyHandle tpmutil.Handle, public, creationData, creationHash []byte, ticket Ticket, creationName []byte, err error) {
-	auth := AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(parentPassword)}
-	Cmd, err := encodeCreate(owner, sel, auth, ownerPassword, nil /*inSensitive*/, pub, nil /*OutsideInfo*/)
-	if err != nil {
-		return 0, nil, nil, nil, Ticket{}, nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdCreatePrimary, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return 0, nil, nil, nil, Ticket{}, nil, err
-	}
+// PolicyCPHashResponse is the response from TPM2_PolicyCpHash.
+type PolicyCPHashResponse struct{}
 
-	return decodeCreatePrimary(resp)
+// PolicyAuthorize is the input to TPM2_PolicySigned.
+// See definition in Part 3, Commands, section 23.16.
+type PolicyAuthorize struct {
+	// handle for the policy session being extended
+	PolicySession handle `gotpm:"handle"`
+	// digest of the policy being approved
+	ApprovedPolicy TPM2BDigest
+	// a policy qualifier
+	PolicyRef TPM2BDigest
+	// Name of a key that can sign a policy addition
+	KeySign TPM2BName
+	// ticket validating that approvedPolicy and policyRef were signed by keySign
+	CheckTicket TPMTTKVerified
 }
 
-// CreatePrimaryRawTemplate is CreatePrimary, but with the public template
-// (TPMT_PUBLIC) provided pre-encoded. This is commonly used with key templates
-// stored in NV RAM.
-func CreatePrimaryRawTemplate(rw io.ReadWriter, owner tpmutil.Handle, sel PCRSelection, parentPassword, ownerPassword string, public []byte) (tpmutil.Handle, crypto.PublicKey, error) {
-	pub, err := DecodePublic(public)
+// Command implements the Command interface.
+func (PolicyAuthorize) Command() TPMCC { return TPMCCPolicyAuthorize }
+
+// Execute executes the command and returns the response.
+func (cmd PolicyAuthorize) Execute(t transport.TPM, s ...Session) (*PolicyAuthorizeResponse, error) {
+	var rsp PolicyAuthorizeResponse
+	err := execute[PolicyAuthorizeResponse](t, cmd, &rsp, s...)
 	if err != nil {
-		return 0, nil, fmt.Errorf("parsing input template: %v", err)
+		return nil, err
 	}
-	return CreatePrimary(rw, owner, sel, parentPassword, ownerPassword, pub)
+	return &rsp, nil
 }
 
-func decodeReadPublic(in []byte) (Public, []byte, []byte, error) {
-	var resp struct {
-		Public        tpmutil.U16Bytes
-		Name          tpmutil.U16Bytes
-		QualifiedName tpmutil.U16Bytes
-	}
-	if _, err := tpmutil.Unpack(in, &resp); err != nil {
-		return Public{}, nil, nil, err
-	}
-	pub, err := DecodePublic(resp.Public)
-	if err != nil {
-		return Public{}, nil, nil, err
-	}
-	return pub, resp.Name, resp.QualifiedName, nil
+// Update implements the PolicyCommand interface.
+func (cmd PolicyAuthorize) Update(policy *PolicyCalculator) error {
+	return policyUpdate(policy, TPMCCPolicyAuthorize, cmd.KeySign.Buffer, cmd.PolicyRef.Buffer)
 }
 
-// ReadPublic reads the public part of the object under handle.
-// Returns the public data, name and qualified name.
-func ReadPublic(rw io.ReadWriter, handle tpmutil.Handle) (Public, []byte, []byte, error) {
-	resp, err := runCommand(rw, TagNoSessions, CmdReadPublic, handle)
-	if err != nil {
-		return Public{}, nil, nil, err
-	}
+// PolicyAuthorizeResponse is the response from TPM2_PolicyAuthorize.
+type PolicyAuthorizeResponse struct{}
 
-	return decodeReadPublic(resp)
+// PolicyGetDigest is the input to TPM2_PolicyGetDigest.
+// See definition in Part 3, Commands, section 23.19.
+type PolicyGetDigest struct {
+	// handle for the policy session
+	PolicySession handle `gotpm:"handle"`
 }
 
-func decodeCreate(in []byte) (private, public, creationData, creationHash tpmutil.U16Bytes, creationTicket Ticket, err error) {
-	buf := bytes.NewBuffer(in)
-	var paramSize uint32
-	if err := tpmutil.UnpackBuf(buf, &paramSize, &private, &public, &creationData, &creationHash, &creationTicket); err != nil {
-		return nil, nil, nil, nil, Ticket{}, fmt.Errorf("decoding Handle, Private, Public, CreationData, CreationHash, CreationTicket: %v", err)
-	}
-	if err != nil {
-		return nil, nil, nil, nil, Ticket{}, fmt.Errorf("decoding CreationTicket: %v", err)
-	}
-	if _, err := DecodeCreationData(creationData); err != nil {
-		return nil, nil, nil, nil, Ticket{}, fmt.Errorf("decoding CreationData: %v", err)
+// Command implements the Command interface.
+func (PolicyGetDigest) Command() TPMCC { return TPMCCPolicyGetDigest }
+
+// Execute executes the command and returns the response.
+func (cmd PolicyGetDigest) Execute(t transport.TPM, s ...Session) (*PolicyGetDigestResponse, error) {
+	var rsp PolicyGetDigestResponse
+	if err := execute[PolicyGetDigestResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
 	}
-	return private, public, creationData, creationHash, creationTicket, nil
+	return &rsp, nil
 }
 
-func create(rw io.ReadWriter, parentHandle tpmutil.Handle, auth AuthCommand, objectPassword string, sensitiveData []byte, pub Public, pcrSelection PCRSelection, outsideInfo []byte) (private, public, creationData, creationHash []byte, creationTicket Ticket, err error) {
-	cmd, err := encodeCreate(parentHandle, pcrSelection, auth, objectPassword, sensitiveData, pub, outsideInfo)
-	if err != nil {
-		return nil, nil, nil, nil, Ticket{}, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdCreate, tpmutil.RawBytes(cmd))
-	if err != nil {
-		return nil, nil, nil, nil, Ticket{}, err
-	}
-	return decodeCreate(resp)
-}
-
-// CreateKey creates a new key pair under the owner handle.
-// Returns private key and public key blobs as well as the
-// creation data, a hash of said data and the creation ticket.
-func CreateKey(rw io.ReadWriter, owner tpmutil.Handle, sel PCRSelection, parentPassword, ownerPassword string, pub Public) (private, public, creationData, creationHash []byte, creationTicket Ticket, err error) {
-	auth := AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(parentPassword)}
-	return create(rw, owner, auth, ownerPassword, nil /*inSensitive*/, pub, sel, nil /*OutsideInfo*/)
-}
-
-// CreateKeyUsingAuth creates a new key pair under the owner handle using the
-// provided AuthCommand. Returns private key and public key blobs as well as
-// the creation data, a hash of said data, and the creation ticket.
-func CreateKeyUsingAuth(rw io.ReadWriter, owner tpmutil.Handle, sel PCRSelection, auth AuthCommand, ownerPassword string, pub Public) (private, public, creationData, creationHash []byte, creationTicket Ticket, err error) {
-	return create(rw, owner, auth, ownerPassword, nil /*inSensitive*/, pub, sel, nil /*OutsideInfo*/)
-}
-
-// CreateKeyWithSensitive is very similar to CreateKey, except
-// that it can take in a piece of sensitive data.
-func CreateKeyWithSensitive(rw io.ReadWriter, owner tpmutil.Handle, sel PCRSelection, parentPassword, ownerPassword string, pub Public, sensitive []byte) (private, public, creationData, creationHash []byte, creationTicket Ticket, err error) {
-	auth := AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(parentPassword)}
-	return create(rw, owner, auth, ownerPassword, sensitive, pub, sel, nil /*OutsideInfo*/)
-}
-
-// CreateKeyWithOutsideInfo is very similar to CreateKey, except
-// that it returns the outside information.
-func CreateKeyWithOutsideInfo(rw io.ReadWriter, owner tpmutil.Handle, sel PCRSelection, parentPassword, ownerPassword string, pub Public, outsideInfo []byte) (private, public, creationData, creationHash []byte, creationTicket Ticket, err error) {
-	auth := AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(parentPassword)}
-	return create(rw, owner, auth, ownerPassword, nil /*inSensitive*/, pub, sel, outsideInfo)
-}
-
-// Seal creates a data blob object that seals the sensitive data under a parent and with a
-// password and auth policy. Access to the parent must be available with a simple password.
-// Returns private and public portions of the created object.
-func Seal(rw io.ReadWriter, parentHandle tpmutil.Handle, parentPassword, objectPassword string, objectAuthPolicy []byte, sensitiveData []byte) ([]byte, []byte, error) {
-	inPublic := Public{
-		Type:       AlgKeyedHash,
-		NameAlg:    AlgSHA256,
-		Attributes: FlagFixedTPM | FlagFixedParent,
-		AuthPolicy: objectAuthPolicy,
-	}
-	auth := AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(parentPassword)}
-	private, public, _, _, _, err := create(rw, parentHandle, auth, objectPassword, sensitiveData, inPublic, PCRSelection{}, nil /*OutsideInfo*/)
-	if err != nil {
-		return nil, nil, err
-	}
-	return private, public, nil
+// PolicyGetDigestResponse is the response from TPM2_PolicyGetDigest.
+type PolicyGetDigestResponse struct {
+	// the current value of the policySession→policyDigest
+	PolicyDigest TPM2BDigest
 }
 
-func encodeImport(parentHandle tpmutil.Handle, auth AuthCommand, publicBlob, privateBlob, symSeed, encryptionKey tpmutil.U16Bytes, sym *SymScheme) ([]byte, error) {
-	ph, err := tpmutil.Pack(parentHandle)
-	if err != nil {
-		return nil, err
-	}
-	encodedAuth, err := encodeAuthArea(auth)
-	if err != nil {
-		return nil, err
-	}
-	data, err := tpmutil.Pack(encryptionKey, publicBlob, privateBlob, symSeed)
-	if err != nil {
-		return nil, err
-	}
-	encodedScheme, err := sym.encode()
-	if err != nil {
+// PolicyNVWritten is the input to TPM2_PolicyNvWritten.
+// See definition in Part 3, Commands, section 23.20.
+type PolicyNVWritten struct {
+	// handle for the policy session being extended
+	PolicySession handle `gotpm:"handle"`
+	// YES if NV Index is required to have been written
+	// NO if NV Index is required not to have been written
+	WrittenSet TPMIYesNo
+}
+
+// Command implements the Command interface.
+func (PolicyNVWritten) Command() TPMCC { return TPMCCPolicyNvWritten }
+
+// Execute executes the command and returns the response.
+func (cmd PolicyNVWritten) Execute(t transport.TPM, s ...Session) (*PolicyNVWrittenResponse, error) {
+	var rsp PolicyNVWrittenResponse
+	if err := execute[PolicyNVWrittenResponse](t, cmd, &rsp, s...); err != nil {
 		return nil, err
 	}
+	return &rsp, nil
+}
 
-	return concat(ph, encodedAuth, data, encodedScheme)
+// Update implements the PolicyCommand interface.
+func (cmd PolicyNVWritten) Update(policy *PolicyCalculator) error {
+	return policy.Update(TPMCCPolicyNvWritten, cmd.WrittenSet)
 }
 
-func decodeImport(resp []byte) ([]byte, error) {
-	var paramSize uint32
-	var outPrivate tpmutil.U16Bytes
-	_, err := tpmutil.Unpack(resp, &paramSize, &outPrivate)
-	return outPrivate, err
+// PolicyNVWrittenResponse is the response from TPM2_PolicyNvWritten.
+type PolicyNVWrittenResponse struct {
 }
 
-// Import allows a user to import a key created on a different computer
-// or in a different TPM. The publicBlob and privateBlob must always be
-// provided. symSeed should be non-nil iff an "outer wrapper" is used. Both of
-// encryptionKey and sym should be non-nil iff an "inner wrapper" is used.
-func Import(rw io.ReadWriter, parentHandle tpmutil.Handle, auth AuthCommand, publicBlob, privateBlob, symSeed, encryptionKey []byte, sym *SymScheme) ([]byte, error) {
-	Cmd, err := encodeImport(parentHandle, auth, publicBlob, privateBlob, symSeed, encryptionKey, sym)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdImport, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return nil, err
-	}
-	return decodeImport(resp)
+// PolicyAuthorizeNV is the input to TPM2_PolicyAuthorizeNV.
+// See definition in Part 3, Commands, section 23.22.
+type PolicyAuthorizeNV struct {
+	// handle indicating the source of the authorization value
+	AuthHandle handle `gotpm:"handle,auth"`
+	// the NV Index of the area to read
+	NVIndex handle `gotpm:"handle"`
+	// handle for the policy session being extended
+	PolicySession handle `gotpm:"handle"`
 }
 
-func encodeLoad(parentHandle tpmutil.Handle, auth AuthCommand, publicBlob, privateBlob tpmutil.U16Bytes) ([]byte, error) {
-	ah, err := tpmutil.Pack(parentHandle)
-	if err != nil {
-		return nil, err
-	}
-	encodedAuth, err := encodeAuthArea(auth)
-	if err != nil {
-		return nil, err
-	}
-	params, err := tpmutil.Pack(privateBlob, publicBlob)
+// Command implements the Command interface.
+func (PolicyAuthorizeNV) Command() TPMCC { return TPMCCPolicyAuthorizeNV }
+
+// Execute executes the command and returns the response.
+func (cmd PolicyAuthorizeNV) Execute(t transport.TPM, s ...Session) (*PolicyAuthorizeNVResponse, error) {
+	var rsp PolicyAuthorizeNVResponse
+	err := execute[PolicyAuthorizeNVResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
 	}
-	return concat(ah, encodedAuth, params)
+	return &rsp, nil
+}
+
+// Update implements the PolicyCommand interface.
+func (cmd PolicyAuthorizeNV) Update(policy *PolicyCalculator) error {
+	policy.Reset()
+	return policy.Update(TPMCCPolicyAuthorizeNV, cmd.NVIndex.KnownName().Buffer)
 }
 
-func decodeLoad(in []byte) (tpmutil.Handle, []byte, error) {
-	var handle tpmutil.Handle
-	var paramSize uint32
-	var name tpmutil.U16Bytes
+// PolicyAuthorizeNVResponse is the response from TPM2_PolicyAuthorizeNV.
+type PolicyAuthorizeNVResponse struct{}
 
-	if _, err := tpmutil.Unpack(in, &handle, &paramSize, &name); err != nil {
-		return 0, nil, err
-	}
+// CreatePrimary is the input to TPM2_CreatePrimary.
+// See definition in Part 3, Commands, section 24.1
+type CreatePrimary struct {
+	// TPM_RH_ENDORSEMENT, TPM_RH_OWNER, TPM_RH_PLATFORM+{PP},
+	// TPM_RH_NULL, TPM_RH_FW_ENDORSEMENT, TPM_RH_FW_OWNER
+	// TPM_RH_FW_PLATFORM+{PP}  or TPM_RH_FW_NULL
+	PrimaryHandle handle `gotpm:"handle,auth"`
+	// the sensitive data
+	InSensitive TPM2BSensitiveCreate
+	// the public template
+	InPublic TPM2BPublic
+	// data that will be included in the creation data for this
+	// object to provide permanent, verifiable linkage between this
+	// object and some object owner data
+	OutsideInfo TPM2BData
+	// PCR that will be used in creation data
+	CreationPCR TPMLPCRSelection
+}
+
+// Command implements the Command interface.
+func (CreatePrimary) Command() TPMCC { return TPMCCCreatePrimary }
 
-	// Re-encode the name as a TPM2B_NAME so it can be parsed by DecodeName().
-	b := &bytes.Buffer{}
-	if err := name.TPMMarshal(b); err != nil {
-		return 0, nil, err
+// Execute executes the command and returns the response.
+func (cmd CreatePrimary) Execute(t transport.TPM, s ...Session) (*CreatePrimaryResponse, error) {
+	var rsp CreatePrimaryResponse
+	if err := execute[CreatePrimaryResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
 	}
-	return handle, b.Bytes(), nil
+	return &rsp, nil
 }
 
-// Load loads public/private blobs into an object in the TPM.
-// Returns loaded object handle and its name.
-func Load(rw io.ReadWriter, parentHandle tpmutil.Handle, parentAuth string, publicBlob, privateBlob []byte) (tpmutil.Handle, []byte, error) {
-	auth := AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(parentAuth)}
-	return LoadUsingAuth(rw, parentHandle, auth, publicBlob, privateBlob)
+// CreatePrimaryResponse is the response from TPM2_CreatePrimary.
+type CreatePrimaryResponse struct {
+	// handle of type TPM_HT_TRANSIENT for created Primary Object
+	ObjectHandle TPMHandle `gotpm:"handle"`
+	// the public portion of the created object
+	OutPublic TPM2BPublic
+	// contains a TPMS_CREATION_DATA
+	CreationData tpm2bCreationData
+	// digest of creationData using nameAlg of outPublic
+	CreationHash TPM2BDigest
+	// ticket used by TPM2_CertifyCreation() to validate that the
+	// creation data was produced by the TPM.
+	CreationTicket TPMTTKCreation
+	// the name of the created object
+	Name TPM2BName
 }
 
-// LoadUsingAuth loads public/private blobs into an object in the TPM using the
-// provided AuthCommand. Returns loaded object handle and its name.
-func LoadUsingAuth(rw io.ReadWriter, parentHandle tpmutil.Handle, auth AuthCommand, publicBlob, privateBlob []byte) (tpmutil.Handle, []byte, error) {
-	Cmd, err := encodeLoad(parentHandle, auth, publicBlob, privateBlob)
-	if err != nil {
-		return 0, nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdLoad, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return 0, nil, err
-	}
-	return decodeLoad(resp)
+// Clear is the input to TPM2_Clear.
+// See definition in Part 3, Commands, section 24.6
+type Clear struct {
+	// TPM_RH_LOCKOUT or TPM_RH_PLATFORM+{PP}
+	AuthHandle handle `gotpm:"handle,auth"`
 }
+
+// Command implements the Command interface.
+func (Clear) Command() TPMCC { return TPMCCClear }
 
-func encodeLoadExternal(pub Public, private Private, hierarchy tpmutil.Handle) ([]byte, error) {
-	privateBlob, err := private.Encode()
+// Execute executes the command and returns the response.
+func (cmd Clear) Execute(t transport.TPM, s ...Session) (*ClearResponse, error) {
+	var rsp ClearResponse
+	err := execute[ClearResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
 	}
-	publicBlob, err := pub.Encode()
-	if err != nil {
+	return &rsp, nil
+}
+
+// ClearResponse is the response from TPM2_Clear.
+type ClearResponse struct{}
+
+// HierarchyChangeAuth is the input to TPM2_HierarchyChangeAuth.
+// See definition in Part 3, Commands, section 24.8
+type HierarchyChangeAuth struct {
+	// TPM_RH_ENDORSEMENT, TPM_RH_LOCKOUT, TPM_RH_OWNER or TPM_RH_PLATFORM+{PP}
+	AuthHandle handle `gotpm:"handle,auth"`
+	// new authorization value
+	NewAuth TPM2BAuth
+}
+
+// Command implements the Command interface.
+func (HierarchyChangeAuth) Command() TPMCC { return TPMCCHierarchyChanegAuth }
+
+// Execute executes the command and returns the response.
+func (cmd HierarchyChangeAuth) Execute(t transport.TPM, s ...Session) (*HierarchyChangeAuthResponse, error) {
+	var rsp HierarchyChangeAuthResponse
+	if err := execute[HierarchyChangeAuthResponse](t, cmd, &rsp, s...); err != nil {
 		return nil, err
 	}
+	return &rsp, nil
+}
 
-	return tpmutil.Pack(tpmutil.U16Bytes(privateBlob), tpmutil.U16Bytes(publicBlob), hierarchy)
+// HierarchyChangeAuthResponse is the response from TPM2_HierarchyChangeAuth.
+type HierarchyChangeAuthResponse struct{}
+
+// ContextSave is the input to TPM2_ContextSave.
+// See definition in Part 3, Commands, section 28.2
+type ContextSave struct {
+	// handle of the resource to save
+	SaveHandle TPMIDHContext
 }
 
-func decodeLoadExternal(in []byte) (tpmutil.Handle, []byte, error) {
-	var handle tpmutil.Handle
-	var name tpmutil.U16Bytes
+// Command implements the Command interface.
+func (ContextSave) Command() TPMCC { return TPMCCContextSave }
 
-	if _, err := tpmutil.Unpack(in, &handle, &name); err != nil {
-		return 0, nil, err
+// Execute executes the command and returns the response.
+func (cmd ContextSave) Execute(t transport.TPM, s ...Session) (*ContextSaveResponse, error) {
+	var rsp ContextSaveResponse
+	if err := execute[ContextSaveResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
 	}
-	return handle, name, nil
+	return &rsp, nil
 }
 
-// LoadExternal loads a public (and optionally a private) key into an object in
-// the TPM. Returns loaded object handle and its name.
-func LoadExternal(rw io.ReadWriter, pub Public, private Private, hierarchy tpmutil.Handle) (tpmutil.Handle, []byte, error) {
-	Cmd, err := encodeLoadExternal(pub, private, hierarchy)
-	if err != nil {
-		return 0, nil, err
-	}
-	resp, err := runCommand(rw, TagNoSessions, CmdLoadExternal, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return 0, nil, err
-	}
-	handle, name, err := decodeLoadExternal(resp)
-	if err != nil {
-		return 0, nil, err
-	}
-	return handle, name, nil
+// ContextSaveResponse is the response from TPM2_ContextSave.
+type ContextSaveResponse struct {
+	Context TPMSContext
 }
 
-// PolicyPassword sets password authorization requirement on the object.
-func PolicyPassword(rw io.ReadWriter, handle tpmutil.Handle) error {
-	_, err := runCommand(rw, TagNoSessions, CmdPolicyPassword, handle)
-	return err
+// ContextLoad is the input to TPM2_ContextLoad.
+// See definition in Part 3, Commands, section 28.3
+type ContextLoad struct {
+	// the context blob
+	Context TPMSContext
 }
 
-func encodePolicySecret(entityHandle tpmutil.Handle, entityAuth AuthCommand, policyHandle tpmutil.Handle, policyNonce, cpHash, policyRef tpmutil.U16Bytes, expiry int32) ([]byte, error) {
-	auth, err := encodeAuthArea(entityAuth)
-	if err != nil {
-		return nil, err
-	}
-	handles, err := tpmutil.Pack(entityHandle, policyHandle)
-	if err != nil {
-		return nil, err
-	}
-	params, err := tpmutil.Pack(policyNonce, cpHash, policyRef, expiry)
-	if err != nil {
+// Command implements the Command interface.
+func (ContextLoad) Command() TPMCC { return TPMCCContextLoad }
+
+// Execute executes the command and returns the response.
+func (cmd ContextLoad) Execute(t transport.TPM, s ...Session) (*ContextLoadResponse, error) {
+	var rsp ContextLoadResponse
+	if err := execute[ContextLoadResponse](t, cmd, &rsp, s...); err != nil {
 		return nil, err
 	}
-	return concat(handles, auth, params)
+	return &rsp, nil
 }
 
-func decodePolicySecret(in []byte) ([]byte, *Ticket, error) {
-	buf := bytes.NewBuffer(in)
-
-	var paramSize uint32
-	var timeout tpmutil.U16Bytes
-	if err := tpmutil.UnpackBuf(buf, &paramSize, &timeout); err != nil {
-		return nil, nil, fmt.Errorf("decoding timeout: %v", err)
-	}
-	var t Ticket
-	if err := tpmutil.UnpackBuf(buf, &t); err != nil {
-		return nil, nil, fmt.Errorf("decoding ticket: %v", err)
-	}
-	return timeout, &t, nil
+// ContextLoadResponse is the response from TPM2_ContextLoad.
+type ContextLoadResponse struct {
+	// the handle assigned to the resource after it has been successfully loaded
+	LoadedHandle TPMIDHContext
 }
 
-// PolicySecret sets a secret authorization requirement on the provided entity.
-func PolicySecret(rw io.ReadWriter, entityHandle tpmutil.Handle, entityAuth AuthCommand, policyHandle tpmutil.Handle, policyNonce, cpHash, policyRef []byte, expiry int32) ([]byte, *Ticket, error) {
-	Cmd, err := encodePolicySecret(entityHandle, entityAuth, policyHandle, policyNonce, cpHash, policyRef, expiry)
-	if err != nil {
-		return nil, nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdPolicySecret, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return nil, nil, err
-	}
-	return decodePolicySecret(resp)
+// FlushContext is the input to TPM2_FlushContext.
+// See definition in Part 3, Commands, section 28.4
+type FlushContext struct {
+	// the handle of the item to flush
+	FlushHandle handle `gotpm:"handle"`
 }
+
+// Command implements the Command interface.
+func (FlushContext) Command() TPMCC { return TPMCCFlushContext }
 
-func encodePolicySigned(validationKeyHandle tpmutil.Handle, policyHandle tpmutil.Handle, policyNonce, cpHash, policyRef tpmutil.U16Bytes, expiry int32, auth []byte) ([]byte, error) {
-	handles, err := tpmutil.Pack(validationKeyHandle, policyHandle)
+// Execute executes the command and returns the response.
+func (cmd FlushContext) Execute(t transport.TPM, s ...Session) (*FlushContextResponse, error) {
+	var rsp FlushContextResponse
+	err := execute[FlushContextResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
 	}
-	params, err := tpmutil.Pack(policyNonce, cpHash, policyRef, expiry, auth)
-	if err != nil {
+	return &rsp, nil
+}
+
+// FlushContextResponse is the response from TPM2_FlushContext.
+type FlushContextResponse struct{}
+
+// EvictControl is the input to TPM2_EvictControl.
+// See definition in Part 3, Commands, section 28.5
+type EvictControl struct {
+	// TPM_RH_OWNER or TPM_RH_PLATFORM+{PP}
+	Auth             handle `gotpm:"handle,auth"`
+	ObjectHandle     handle `gotpm:"handle"`
+	PersistentHandle TPMIDHPersistent
+}
+
+// EvictControlResponse is the response from TPM2_EvictControl.
+type EvictControlResponse struct{}
+
+// Command implements the Command interface.
+func (EvictControl) Command() TPMCC { return TPMCCEvictControl }
+
+// Execute executes the command and returns the response.
+func (cmd EvictControl) Execute(t transport.TPM, s ...Session) (*EvictControlResponse, error) {
+	var rsp EvictControlResponse
+	if err := execute[EvictControlResponse](t, cmd, &rsp, s...); err != nil {
 		return nil, err
 	}
-	return concat(handles, params)
+	return &rsp, nil
 }
 
-func decodePolicySigned(in []byte) ([]byte, *Ticket, error) {
-	buf := bytes.NewBuffer(in)
+// Duplicate is the input to TPM2_Duplicate.
+// See definition in Part 3, Commands, section 13.1
+type Duplicate struct {
+	// ObjectHandle is the handle of the object to dupliate.
+	ObjectHandle handle `gotpm:"handle,auth"`
 
-	var timeout tpmutil.U16Bytes
-	if err := tpmutil.UnpackBuf(buf, &timeout); err != nil {
-		return nil, nil, fmt.Errorf("decoding timeout: %v", err)
-	}
-	var t Ticket
-	if err := tpmutil.UnpackBuf(buf, &t); err != nil {
-		return nil, nil, fmt.Errorf("decoding ticket: %v", err)
-	}
-	return timeout, &t, nil
+	// NewParentHandle is the handle of the new parent.
+	NewParentHandle handle `gotpm:"handle"`
+
+	// EncryptionKeyIn is the optional symmetric encryption key used as the
+	// inner wrapper. If SymmetricAlg is TPM_ALG_NULL, then this parameter
+	// shall be the Empty Buffer.
+	EncryptionKeyIn TPM2BData
+
+	// Definition of the symmetric algorithm to use for the inner wrapper.
+	// It may be TPM_ALG_NULL if no inner wrapper is applied.
+	Symmetric TPMTSymDef
 }
 
-// PolicySigned sets a signed authorization requirement on the provided policy.
-func PolicySigned(rw io.ReadWriter, validationKeyHandle tpmutil.Handle, policyHandle tpmutil.Handle, policyNonce, cpHash, policyRef []byte, expiry int32, signedAuth []byte) ([]byte, *Ticket, error) {
-	Cmd, err := encodePolicySigned(validationKeyHandle, policyHandle, policyNonce, cpHash, policyRef, expiry, signedAuth)
-	if err != nil {
-		return nil, nil, err
-	}
-	resp, err := runCommand(rw, TagNoSessions, CmdPolicySigned, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return nil, nil, err
-	}
-	return decodePolicySigned(resp)
+// DuplicateResponse is the response from TPM2_Duplicate.
+type DuplicateResponse struct {
+	// EncryptionKeyOut is the symmetric encryption key used as the
+	// inner wrapper. If SymmetricAlg is TPM_ALG_NULL, this value
+	// shall be the Empty Buffer.
+	EncryptionKeyOut TPM2BData
+
+	// Duplicate is the private area of the object. It may be encrypted by
+	// EncryptionKeyIn and may be doubly encrypted.
+	Duplicate TPM2BPrivate
+
+	// OutSymSeed is the seed protected by the asymmetric algorithms of new
+	// parent.
+	OutSymSeed TPM2BEncryptedSecret
 }
 
-func encodePolicyPCR(session tpmutil.Handle, expectedDigest tpmutil.U16Bytes, sel PCRSelection) ([]byte, error) {
-	params, err := tpmutil.Pack(session, expectedDigest)
-	if err != nil {
-		return nil, err
-	}
-	pcrs, err := encodeTPMLPCRSelection(sel)
-	if err != nil {
+// Command implements the Command interface.
+func (Duplicate) Command() TPMCC { return TPMCCDuplicate }
+
+// Execute executes the command and returns the response.
+func (cmd Duplicate) Execute(t transport.TPM, s ...Session) (*DuplicateResponse, error) {
+	var rsp DuplicateResponse
+	if err := execute[DuplicateResponse](t, cmd, &rsp, s...); err != nil {
 		return nil, err
-	}
-	return concat(params, pcrs)
-}
-
-// PolicyPCR sets PCR state binding for authorization on a session.
-//
-// expectedDigest is optional. When specified, it's compared against the digest
-// of PCRs matched by sel.
-//
-// Note that expectedDigest must be a *digest* of the expected PCR value. You
-// must compute the digest manually. ReadPCR returns raw PCR values, not their
-// digests.
-// If you wish to select multiple PCRs, concatenate their values before
-// computing the digest. See "TPM 2.0 Part 1, Selecting Multiple PCR".
-func PolicyPCR(rw io.ReadWriter, session tpmutil.Handle, expectedDigest []byte, sel PCRSelection) error {
-	Cmd, err := encodePolicyPCR(session, expectedDigest, sel)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagNoSessions, CmdPolicyPCR, tpmutil.RawBytes(Cmd))
-	return err
-}
-
-// PolicyOr compares PolicySession→Digest against the list of provided values.
-// If the current Session→Digest does not match any value in the list,
-// the TPM shall return TPM_RC_VALUE. Otherwise, the TPM will reset policySession→Digest
-// to a Zero Digest. Then policySession→Digest is extended by the concatenation of
-// TPM_CC_PolicyOR and the concatenation of all of the digests.
-func PolicyOr(rw io.ReadWriter, session tpmutil.Handle, digests TPMLDigest) error {
-	d, err := digests.Encode()
-	if err != nil {
-		return err
-	}
-	data, err := tpmutil.Pack(session, d)
-	if err != nil {
-		return err
 	}
-	_, err = runCommand(rw, TagNoSessions, CmdPolicyOr, data)
-	return err
+	return &rsp, nil
 }
 
-// PolicyGetDigest returns the current policyDigest of the session.
-func PolicyGetDigest(rw io.ReadWriter, handle tpmutil.Handle) ([]byte, error) {
-	resp, err := runCommand(rw, TagNoSessions, CmdPolicyGetDigest, handle)
-	if err != nil {
-		return nil, err
-	}
+// Import is the input to TPM2_Import.
+// See definition in Part 3, Commands, section 13.3
+type Import struct {
+	// handle of parent for new object
+	ParentHandle handle `gotpm:"handle,auth"`
+
+	// The optional symmetric encryption key used as the inner wrapper for duplicate
+	// If SymmetricAlg is TPM_ALG_NULL, then this parametert shall be the Empty Buffer
+	EncryptionKey TPM2BData
+
+	// The public area of the object to be imported
+	ObjectPublic TPM2BPublic
 
-	var digest tpmutil.U16Bytes
-	_, err = tpmutil.Unpack(resp, &digest)
-	return digest, err
+	// The symmetrically encrypted duplicate object that may contain an inner
+	// symmetric wrapper
+	Duplicate TPM2BPrivate
+
+	// The seed for the symmetric key and HMAC key
+	InSymSeed TPM2BEncryptedSecret
+
+	// Definition of the symmetric algorithm to use for the inner wrapper
+	Symmetric TPMTSymDef
 }
 
-func encodeStartAuthSession(tpmKey, bindKey tpmutil.Handle, nonceCaller, secret tpmutil.U16Bytes, se SessionType, sym, hashAlg Algorithm) ([]byte, error) {
-	ha, err := tpmutil.Pack(tpmKey, bindKey)
-	if err != nil {
+// ImportResponse is the response from TPM2_Import.
+type ImportResponse struct {
+	// the private portion of the object
+	OutPrivate TPM2BPrivate
+}
+
+// Command implements the Command interface.
+func (Import) Command() TPMCC { return TPMCCImport }
+
+// Execute executes the command and returns the response.
+func (cmd Import) Execute(t transport.TPM, s ...Session) (*ImportResponse, error) {
+	var rsp ImportResponse
+	if err := execute[ImportResponse](t, cmd, &rsp, s...); err != nil {
 		return nil, err
 	}
-	params, err := tpmutil.Pack(nonceCaller, secret, se, sym, hashAlg)
-	if err != nil {
+	return &rsp, nil
+}
+
+// ReadClock is the input to TPM2_ReadClock.
+// See definition in Part 3, Commands, section 29.1
+type ReadClock struct{}
+
+// Command implements the Command interface.
+func (ReadClock) Command() TPMCC { return TPMCCReadClock }
+
+// Execute executes the command and returns the response.
+func (cmd ReadClock) Execute(t transport.TPM, s ...Session) (*ReadClockResponse, error) {
+	var rsp ReadClockResponse
+	if err := execute[ReadClockResponse](t, cmd, &rsp, s...); err != nil {
 		return nil, err
 	}
-	return concat(ha, params)
+	return &rsp, nil
 }
 
-func decodeStartAuthSession(in []byte) (tpmutil.Handle, []byte, error) {
-	var handle tpmutil.Handle
-	var nonce tpmutil.U16Bytes
-	if _, err := tpmutil.Unpack(in, &handle, &nonce); err != nil {
-		return 0, nil, err
-	}
-	return handle, nonce, nil
+// ReadClockResponse is the response from TPM2_ReadClock.
+type ReadClockResponse struct {
+	CurrentTime TPMSTimeInfo
 }
 
-// StartAuthSession initializes a session object.
-// Returns session handle and the initial nonce from the TPM.
-func StartAuthSession(rw io.ReadWriter, tpmKey, bindKey tpmutil.Handle, nonceCaller, secret []byte, se SessionType, sym, hashAlg Algorithm) (tpmutil.Handle, []byte, error) {
-	Cmd, err := encodeStartAuthSession(tpmKey, bindKey, nonceCaller, secret, se, sym, hashAlg)
-	if err != nil {
-		return 0, nil, err
-	}
-	resp, err := runCommand(rw, TagNoSessions, CmdStartAuthSession, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return 0, nil, err
-	}
-	return decodeStartAuthSession(resp)
+// GetCapability is the input to TPM2_GetCapability.
+// See definition in Part 3, Commands, section 30.2
+type GetCapability struct {
+	// group selection; determines the format of the response
+	Capability TPMCap
+	// further definition of information
+	Property uint32
+	// number of properties of the indicated type to return
+	PropertyCount uint32
 }
 
-func encodeUnseal(sessionHandle, itemHandle tpmutil.Handle, password string) ([]byte, error) {
-	ha, err := tpmutil.Pack(itemHandle)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: sessionHandle, Attributes: AttrContinueSession, Auth: []byte(password)})
-	if err != nil {
+// Command implements the Command interface.
+func (GetCapability) Command() TPMCC { return TPMCCGetCapability }
+
+// Execute executes the command and returns the response.
+func (cmd GetCapability) Execute(t transport.TPM, s ...Session) (*GetCapabilityResponse, error) {
+	var rsp GetCapabilityResponse
+	if err := execute[GetCapabilityResponse](t, cmd, &rsp, s...); err != nil {
 		return nil, err
 	}
-	return concat(ha, auth)
+	return &rsp, nil
+}
+
+// GetCapabilityResponse is the response from TPM2_GetCapability.
+type GetCapabilityResponse struct {
+	// flag to indicate if there are more values of this type
+	MoreData TPMIYesNo
+	// the capability data
+	CapabilityData TPMSCapabilityData
+}
+
+// TestParms is the input to TPM2_TestParms.
+// See definition in Part 3, Commands, section 30.3
+type TestParms struct {
+	// Algorithms parameters to be validates
+	Parameters TPMTPublicParms
 }
 
-func decodeUnseal(in []byte) ([]byte, error) {
-	var paramSize uint32
-	var unsealed tpmutil.U16Bytes
+// Command implements the Command interface.
+func (TestParms) Command() TPMCC { return TPMCCTestParms }
 
-	if _, err := tpmutil.Unpack(in, &paramSize, &unsealed); err != nil {
+// Execute executes the command and returns the response.
+func (cmd TestParms) Execute(t transport.TPM, s ...Session) (*TestParmsResponse, error) {
+	var rsp TestParmsResponse
+	if err := execute[TestParmsResponse](t, cmd, &rsp, s...); err != nil {
 		return nil, err
 	}
-	return unsealed, nil
+	return &rsp, nil
 }
+
+// TestParmsResponse is the response from TPM2_TestParms.
+type TestParmsResponse struct{}
 
-// Unseal returns the data for a loaded sealed object.
-func Unseal(rw io.ReadWriter, itemHandle tpmutil.Handle, password string) ([]byte, error) {
-	return UnsealWithSession(rw, HandlePasswordSession, itemHandle, password)
+// NVDefineSpace is the input to TPM2_NV_DefineSpace.
+// See definition in Part 3, Commands, section 31.3.
+type NVDefineSpace struct {
+	// TPM_RH_OWNER or TPM_RH_PLATFORM+{PP}
+	AuthHandle handle `gotpm:"handle,auth"`
+	// the authorization value
+	Auth TPM2BAuth
+	// the public parameters of the NV area
+	PublicInfo TPM2BNVPublic
 }
 
-// UnsealWithSession returns the data for a loaded sealed object.
-func UnsealWithSession(rw io.ReadWriter, sessionHandle, itemHandle tpmutil.Handle, password string) ([]byte, error) {
-	Cmd, err := encodeUnseal(sessionHandle, itemHandle, password)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdUnseal, tpmutil.RawBytes(Cmd))
+// Command implements the Command interface.
+func (NVDefineSpace) Command() TPMCC { return TPMCCNVDefineSpace }
+
+// Execute executes the command and returns the response.
+func (cmd NVDefineSpace) Execute(t transport.TPM, s ...Session) (*NVDefineSpaceResponse, error) {
+	var rsp NVDefineSpaceResponse
+	err := execute[NVDefineSpaceResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
 	}
-	return decodeUnseal(resp)
+	return &rsp, nil
 }
 
-func encodeQuote(signingHandle tpmutil.Handle, signerAuth string, toQuote tpmutil.U16Bytes, sel PCRSelection, sigAlg Algorithm) ([]byte, error) {
-	ha, err := tpmutil.Pack(signingHandle)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(signerAuth)})
+// NVDefineSpaceResponse is the response from TPM2_NV_DefineSpace.
+type NVDefineSpaceResponse struct{}
+
+// NVUndefineSpace is the input to TPM2_NV_UndefineSpace.
+// See definition in Part 3, Commands, section 31.4.
+type NVUndefineSpace struct {
+	// TPM_RH_OWNER or TPM_RH_PLATFORM+{PP}
+	AuthHandle handle `gotpm:"handle,auth"`
+	// the NV Index to remove from NV space
+	NVIndex handle `gotpm:"handle"`
+}
+
+// Command implements the Command interface.
+func (NVUndefineSpace) Command() TPMCC { return TPMCCNVUndefineSpace }
+
+// Execute executes the command and returns the response.
+func (cmd NVUndefineSpace) Execute(t transport.TPM, s ...Session) (*NVUndefineSpaceResponse, error) {
+	var rsp NVUndefineSpaceResponse
+	err := execute[NVUndefineSpaceResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
 	}
-	params, err := tpmutil.Pack(toQuote, sigAlg)
+	return &rsp, nil
+}
+
+// NVUndefineSpaceResponse is the response from TPM2_NV_UndefineSpace.
+type NVUndefineSpaceResponse struct{}
+
+// NVUndefineSpaceSpecial is the input to TPM2_NV_UndefineSpaceSpecial.
+// See definition in Part 3, Commands, section 31.5.
+type NVUndefineSpaceSpecial struct {
+	// Index to be deleted
+	NVIndex handle `gotpm:"handle,auth"`
+	// TPM_RH_PLATFORM+{PP}
+	Platform handle `gotpm:"handle,auth"`
+}
+
+// Command implements the Command interface.
+func (NVUndefineSpaceSpecial) Command() TPMCC { return TPMCCNVUndefineSpaceSpecial }
+
+// Execute executes the command and returns the response.
+func (cmd NVUndefineSpaceSpecial) Execute(t transport.TPM, s ...Session) (*NVUndefineSpaceSpecialResponse, error) {
+	var rsp NVUndefineSpaceSpecialResponse
+	err := execute[NVUndefineSpaceSpecialResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
 	}
-	pcrs, err := encodeTPMLPCRSelection(sel)
-	if err != nil {
+	return &rsp, nil
+}
+
+// NVUndefineSpaceSpecialResponse is the response from TPM2_NV_UndefineSpaceSpecial.
+type NVUndefineSpaceSpecialResponse struct{}
+
+// NVReadPublic is the input to TPM2_NV_ReadPublic.
+// See definition in Part 3, Commands, section 31.6.
+type NVReadPublic struct {
+	// the NV index
+	NVIndex handle `gotpm:"handle"`
+}
+
+// Command implements the Command interface.
+func (NVReadPublic) Command() TPMCC { return TPMCCNVReadPublic }
+
+// Execute executes the command and returns the response.
+func (cmd NVReadPublic) Execute(t transport.TPM, s ...Session) (*NVReadPublicResponse, error) {
+	var rsp NVReadPublicResponse
+	if err := execute[NVReadPublicResponse](t, cmd, &rsp, s...); err != nil {
 		return nil, err
 	}
-	return concat(ha, auth, params, pcrs)
+	return &rsp, nil
 }
 
-func decodeQuote(in []byte) ([]byte, []byte, error) {
-	buf := bytes.NewBuffer(in)
-	var paramSize uint32
-	if err := tpmutil.UnpackBuf(buf, &paramSize); err != nil {
-		return nil, nil, err
-	}
-	buf.Truncate(int(paramSize))
-	var attest tpmutil.U16Bytes
-	if err := tpmutil.UnpackBuf(buf, &attest); err != nil {
-		return nil, nil, err
-	}
-	return attest, buf.Bytes(), nil
-}
-
-// Quote returns a quote of PCR values. A quote is a signature of the PCR
-// values, created using a signing TPM key.
-//
-// Returns attestation data and the decoded signature.
-func Quote(rw io.ReadWriter, signingHandle tpmutil.Handle, signerAuth, unused string, toQuote []byte, sel PCRSelection, sigAlg Algorithm) ([]byte, *Signature, error) {
-	// TODO: Remove "unused" parameter on next breaking change.
-	attest, sigRaw, err := QuoteRaw(rw, signingHandle, signerAuth, unused, toQuote, sel, sigAlg)
-	if err != nil {
-		return nil, nil, err
-	}
-	sig, err := DecodeSignature(bytes.NewBuffer(sigRaw))
-	if err != nil {
-		return nil, nil, err
-	}
-	return attest, sig, nil
+// NVReadPublicResponse is the response from TPM2_NV_ReadPublic.
+type NVReadPublicResponse struct {
+	NVPublic TPM2BNVPublic
+	NVName   TPM2BName
 }
 
-// QuoteRaw is very similar to Quote, except that it will return
-// the raw signature in a byte array without decoding.
-func QuoteRaw(rw io.ReadWriter, signingHandle tpmutil.Handle, signerAuth, unused string, toQuote []byte, sel PCRSelection, sigAlg Algorithm) ([]byte, []byte, error) {
-	// TODO: Remove "unused" parameter on next breaking change.
-	Cmd, err := encodeQuote(signingHandle, signerAuth, toQuote, sel, sigAlg)
-	if err != nil {
-		return nil, nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdQuote, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return nil, nil, err
-	}
-	return decodeQuote(resp)
+// NVWrite is the input to TPM2_NV_Write.
+// See definition in Part 3, Commands, section 31.7.
+type NVWrite struct {
+	// handle indicating the source of the authorization value
+	AuthHandle handle `gotpm:"handle,auth"`
+	// the NV index of the area to write
+	NVIndex handle `gotpm:"handle"`
+	// the data to write
+	Data TPM2BMaxNVBuffer
+	// the octet offset into the NV Area
+	Offset uint16
 }
 
-func encodeActivateCredential(auth []AuthCommand, activeHandle tpmutil.Handle, keyHandle tpmutil.Handle, credBlob, secret tpmutil.U16Bytes) ([]byte, error) {
-	ha, err := tpmutil.Pack(activeHandle, keyHandle)
-	if err != nil {
-		return nil, err
-	}
-	a, err := encodeAuthArea(auth...)
-	if err != nil {
-		return nil, err
-	}
-	params, err := tpmutil.Pack(credBlob, secret)
+// Command implements the Command interface.
+func (NVWrite) Command() TPMCC { return TPMCCNVWrite }
+
+// Execute executes the command and returns the response.
+func (cmd NVWrite) Execute(t transport.TPM, s ...Session) (*NVWriteResponse, error) {
+	var rsp NVWriteResponse
+	err := execute[NVWriteResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
 	}
-	return concat(ha, a, params)
+	return &rsp, nil
 }
 
-func decodeActivateCredential(in []byte) ([]byte, error) {
-	var paramSize uint32
-	var certInfo tpmutil.U16Bytes
+// NVWriteResponse is the response from TPM2_NV_Write.
+type NVWriteResponse struct{}
 
-	if _, err := tpmutil.Unpack(in, &paramSize, &certInfo); err != nil {
-		return nil, err
-	}
-	return certInfo, nil
-}
-
-// ActivateCredential associates an object with a credential.
-// Returns decrypted certificate information.
-func ActivateCredential(rw io.ReadWriter, activeHandle, keyHandle tpmutil.Handle, activePassword, protectorPassword string, credBlob, secret []byte) ([]byte, error) {
-	return ActivateCredentialUsingAuth(rw, []AuthCommand{
-		{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(activePassword)},
-		{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(protectorPassword)},
-	}, activeHandle, keyHandle, credBlob, secret)
-}
-
-// ActivateCredentialUsingAuth associates an object with a credential, using the
-// given set of authorizations. Two authorization must be provided.
-// Returns decrypted certificate information.
-func ActivateCredentialUsingAuth(rw io.ReadWriter, auth []AuthCommand, activeHandle, keyHandle tpmutil.Handle, credBlob, secret []byte) ([]byte, error) {
-	if len(auth) != 2 {
-		return nil, fmt.Errorf("len(auth) = %d, want 2", len(auth))
-	}
+// NVIncrement is the input to TPM2_NV_Increment.
+// See definition in Part 3, Commands, section 31.8.
+type NVIncrement struct {
+	// handle indicating the source of the authorization value
+	AuthHandle handle `gotpm:"handle,auth"`
+	// the NV index of the area to write
+	NVIndex handle `gotpm:"handle"`
+}
 
-	Cmd, err := encodeActivateCredential(auth, activeHandle, keyHandle, credBlob, secret)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdActivateCredential, tpmutil.RawBytes(Cmd))
+// Command implements the Command interface.
+func (NVIncrement) Command() TPMCC { return TPMCCNVIncrement }
+
+// Execute executes the command and returns the response.
+func (cmd NVIncrement) Execute(t transport.TPM, s ...Session) (*NVIncrementResponse, error) {
+	var rsp NVIncrementResponse
+	err := execute[NVIncrementResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
 	}
-	return decodeActivateCredential(resp)
+	return &rsp, nil
 }
 
-func encodeMakeCredential(protectorHandle tpmutil.Handle, credential, activeName tpmutil.U16Bytes) ([]byte, error) {
-	ha, err := tpmutil.Pack(protectorHandle)
-	if err != nil {
-		return nil, err
-	}
-	params, err := tpmutil.Pack(credential, activeName)
+// NVIncrementResponse is the response from TPM2_NV_Increment.
+type NVIncrementResponse struct{}
+
+// NVWriteLock is the input to TPM2_NV_WriteLock.
+// See definition in Part 3, Commands, section 31.11.
+type NVWriteLock struct {
+	// handle indicating the source of the authorization value
+	AuthHandle handle `gotpm:"handle,auth"`
+	// the NV index of the area to lock
+	NVIndex handle `gotpm:"handle"`
+}
+
+// Command implements the Command interface.
+func (NVWriteLock) Command() TPMCC { return TPMCCNVWriteLock }
+
+// Execute executes the command and returns the response.
+func (cmd NVWriteLock) Execute(t transport.TPM, s ...Session) (*NVWriteLockResponse, error) {
+	var rsp NVWriteLockResponse
+	err := execute[NVWriteLockResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
 	}
-	return concat(ha, params)
+	return &rsp, nil
 }
 
-func decodeMakeCredential(in []byte) ([]byte, []byte, error) {
-	var credBlob, encryptedSecret tpmutil.U16Bytes
+// NVWriteLockResponse is the response from TPM2_NV_WriteLock.
+type NVWriteLockResponse struct{}
 
-	if _, err := tpmutil.Unpack(in, &credBlob, &encryptedSecret); err != nil {
-		return nil, nil, err
-	}
-	return credBlob, encryptedSecret, nil
+// NVRead is the input to TPM2_NV_Read.
+// See definition in Part 3, Commands, section 31.13.
+type NVRead struct {
+	// handle indicating the source of the authorization value
+	AuthHandle handle `gotpm:"handle,auth"`
+	// the NV index to read
+	NVIndex handle `gotpm:"handle"`
+	// number of octets to read
+	Size uint16
+	// octet offset into the NV area
+	Offset uint16
 }
 
-// MakeCredential creates an encrypted credential for use in MakeCredential.
-// Returns encrypted credential and wrapped secret used to encrypt it.
-func MakeCredential(rw io.ReadWriter, protectorHandle tpmutil.Handle, credential, activeName []byte) ([]byte, []byte, error) {
-	Cmd, err := encodeMakeCredential(protectorHandle, credential, activeName)
-	if err != nil {
-		return nil, nil, err
-	}
-	resp, err := runCommand(rw, TagNoSessions, CmdMakeCredential, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return nil, nil, err
+// Command implements the Command interface.
+func (NVRead) Command() TPMCC { return TPMCCNVRead }
+
+// Execute executes the command and returns the response.
+func (cmd NVRead) Execute(t transport.TPM, s ...Session) (*NVReadResponse, error) {
+	var rsp NVReadResponse
+	if err := execute[NVReadResponse](t, cmd, &rsp, s...); err != nil {
+		return nil, err
 	}
-	return decodeMakeCredential(resp)
+	return &rsp, nil
 }
+
+// NVReadResponse is the response from TPM2_NV_Read.
+type NVReadResponse struct {
+	// the data read
+	Data TPM2BMaxNVBuffer
+}
+
+// NVReadLock is the input to TPM2_NV_NVReadLock.
+// See definition in Part 3, Commands, section 31.14.
+type NVReadLock struct {
+	// handle indicating the source of the authorization value
+	AuthHandle handle `gotpm:"handle,auth"`
+	// the NV index of the area to lock
+	NVIndex handle `gotpm:"handle"`
+}
+
+// Command implements the Command interface.
+func (NVReadLock) Command() TPMCC { return TPMCCNVReadLock }
 
-func encodeEvictControl(ownerAuth string, owner, objectHandle, persistentHandle tpmutil.Handle) ([]byte, error) {
-	ha, err := tpmutil.Pack(owner, objectHandle)
+// Execute executes the command and returns the response.
+func (cmd NVReadLock) Execute(t transport.TPM, s ...Session) (*NVReadLockResponse, error) {
+	var rsp NVReadLockResponse
+	err := execute[NVReadLockResponse](t, cmd, &rsp, s...)
 	if err != nil {
 		return nil, err
 	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(ownerAuth)})
-	if err != nil {
-		return nil, err
-	}
-	params, err := tpmutil.Pack(persistentHandle)
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth, params)
-}
-
-// EvictControl toggles persistence of an object within the TPM.
-func EvictControl(rw io.ReadWriter, ownerAuth string, owner, objectHandle, persistentHandle tpmutil.Handle) error {
-	Cmd, err := encodeEvictControl(ownerAuth, owner, objectHandle, persistentHandle)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdEvictControl, tpmutil.RawBytes(Cmd))
-	return err
-}
-
-func encodeClear(handle tpmutil.Handle, auth AuthCommand) ([]byte, error) {
-	ah, err := tpmutil.Pack(handle)
-	if err != nil {
-		return nil, err
-	}
-	encodedAuth, err := encodeAuthArea(auth)
-	if err != nil {
-		return nil, err
-	}
-	return concat(ah, encodedAuth)
-}
-
-// Clear clears lockout, endorsement and owner hierarchy authorization values
-func Clear(rw io.ReadWriter, handle tpmutil.Handle, auth AuthCommand) error {
-	Cmd, err := encodeClear(handle, auth)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdClear, tpmutil.RawBytes(Cmd))
-	return err
-}
-
-func encodeHierarchyChangeAuth(handle tpmutil.Handle, auth AuthCommand, newAuth string) ([]byte, error) {
-	ah, err := tpmutil.Pack(handle)
-	if err != nil {
-		return nil, err
-	}
-	encodedAuth, err := encodeAuthArea(auth)
-	if err != nil {
-		return nil, err
-	}
-	param, err := tpmutil.Pack(tpmutil.U16Bytes(newAuth))
-	if err != nil {
-		return nil, err
-	}
-	return concat(ah, encodedAuth, param)
-}
-
-// HierarchyChangeAuth changes the authorization values for a hierarchy or for the lockout authority
-func HierarchyChangeAuth(rw io.ReadWriter, handle tpmutil.Handle, auth AuthCommand, newAuth string) error {
-	Cmd, err := encodeHierarchyChangeAuth(handle, auth, newAuth)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdHierarchyChangeAuth, tpmutil.RawBytes(Cmd))
-	return err
-}
-
-// ContextSave returns an encrypted version of the session, object or sequence
-// context for storage outside of the TPM. The handle references context to
-// store.
-func ContextSave(rw io.ReadWriter, handle tpmutil.Handle) ([]byte, error) {
-	return runCommand(rw, TagNoSessions, CmdContextSave, handle)
-}
-
-// ContextLoad reloads context data created by ContextSave.
-func ContextLoad(rw io.ReadWriter, saveArea []byte) (tpmutil.Handle, error) {
-	resp, err := runCommand(rw, TagNoSessions, CmdContextLoad, tpmutil.RawBytes(saveArea))
-	if err != nil {
-		return 0, err
-	}
-	var handle tpmutil.Handle
-	_, err = tpmutil.Unpack(resp, &handle)
-	return handle, err
-}
-
-func encodeIncrementNV(handle tpmutil.Handle, authString string) ([]byte, error) {
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(authString)})
-	if err != nil {
-		return nil, err
-	}
-	out, err := tpmutil.Pack(handle, handle)
-	if err != nil {
-		return nil, err
-	}
-	return concat(out, auth)
-}
-
-// NVIncrement increments a counter in NVRAM.
-func NVIncrement(rw io.ReadWriter, handle tpmutil.Handle, authString string) error {
-	Cmd, err := encodeIncrementNV(handle, authString)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdIncrementNVCounter, tpmutil.RawBytes(Cmd))
-	return err
-}
-
-// NVUndefineSpace removes an index from TPM's NV storage.
-func NVUndefineSpace(rw io.ReadWriter, ownerAuth string, owner, index tpmutil.Handle) error {
-	authArea := AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(ownerAuth)}
-	return NVUndefineSpaceEx(rw, owner, index, authArea)
-}
-
-// NVUndefineSpaceEx removes an index from NVRAM. Unlike, NVUndefineSpace(), custom command
-// authorization can be provided.
-func NVUndefineSpaceEx(rw io.ReadWriter, owner, index tpmutil.Handle, authArea AuthCommand) error {
-	out, err := tpmutil.Pack(owner, index)
-	if err != nil {
-		return err
-	}
-	auth, err := encodeAuthArea(authArea)
-	if err != nil {
-		return err
-	}
-	cmd, err := concat(out, auth)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdUndefineSpace, tpmutil.RawBytes(cmd))
-	return err
-}
-
-// NVUndefineSpaceSpecial This command allows removal of a platform-created NV Index that has TPMA_NV_POLICY_DELETE SET.
-// The policy to authorize NV index access needs to be created with PolicyCommandCode(rw, sessionHandle, CmdNVUndefineSpaceSpecial) function
-// nvAuthCmd takes the session handle for the policy and the AuthValue (which can be emptyAuth) for the authorization.
-// platformAuth takes either a sessionHandle for the platform policy or HandlePasswordSession and the platformAuth value for authorization.
-func NVUndefineSpaceSpecial(rw io.ReadWriter, nvIndex tpmutil.Handle, nvAuth, platformAuth AuthCommand) error {
-	authBytes, err := encodeAuthArea(nvAuth, platformAuth)
-	if err != nil {
-		return err
-	}
-	auth, err := tpmutil.Pack(authBytes)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdNVUndefineSpaceSpecial, nvIndex, HandlePlatform, tpmutil.RawBytes(auth))
-	return err
-}
-
-// NVDefineSpace creates an index in TPM's NV storage.
-func NVDefineSpace(rw io.ReadWriter, owner, handle tpmutil.Handle, ownerAuth, authString string, policy []byte, attributes NVAttr, dataSize uint16) error {
-	nvPub := NVPublic{
-		NVIndex:    handle,
-		NameAlg:    AlgSHA1,
-		Attributes: attributes,
-		AuthPolicy: policy,
-		DataSize:   dataSize,
-	}
-	authArea := AuthCommand{
-		Session:    HandlePasswordSession,
-		Attributes: AttrContinueSession,
-		Auth:       []byte(ownerAuth),
-	}
-	return NVDefineSpaceEx(rw, owner, authString, nvPub, authArea)
-
-}
-
-// NVDefineSpaceEx accepts NVPublic structure and AuthCommand, allowing more flexibility.
-func NVDefineSpaceEx(rw io.ReadWriter, owner tpmutil.Handle, authVal string, pubInfo NVPublic, authArea AuthCommand) error {
-	ha, err := tpmutil.Pack(owner)
-	if err != nil {
-		return err
-	}
-	auth, err := encodeAuthArea(authArea)
-	if err != nil {
-		return err
-	}
-	publicInfo, err := tpmutil.Pack(pubInfo)
-	if err != nil {
-		return err
-	}
-	params, err := tpmutil.Pack(tpmutil.U16Bytes(authVal), tpmutil.U16Bytes(publicInfo))
-	if err != nil {
-		return err
-	}
-	cmd, err := concat(ha, auth, params)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdDefineSpace, tpmutil.RawBytes(cmd))
-	return err
-}
-
-// NVWrite writes data into the TPM's NV storage.
-func NVWrite(rw io.ReadWriter, authHandle, nvIndex tpmutil.Handle, authString string, data tpmutil.U16Bytes, offset uint16) error {
-	auth := AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(authString)}
-	return NVWriteEx(rw, authHandle, nvIndex, auth, data, offset)
-}
-
-// NVWriteEx does the same as NVWrite with the exception of letting the user take care of the AuthCommand before calling the function.
-// This allows more flexibility and does not limit the AuthCommand to PasswordSession.
-func NVWriteEx(rw io.ReadWriter, authHandle, nvIndex tpmutil.Handle, authArea AuthCommand, data tpmutil.U16Bytes, offset uint16) error {
-	h, err := tpmutil.Pack(authHandle, nvIndex)
-	if err != nil {
-		return err
-	}
-	authEnc, err := encodeAuthArea(authArea)
-	if err != nil {
-		return err
-	}
-
-	d, err := tpmutil.Pack(data, offset)
-	if err != nil {
-		return err
-	}
-
-	b, err := concat(h, authEnc, d)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdWriteNV, tpmutil.RawBytes(b))
-	return err
-}
-
-func encodeLockNV(owner, handle tpmutil.Handle, authString string) ([]byte, error) {
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(authString)})
-	if err != nil {
-		return nil, err
-	}
-	out, err := tpmutil.Pack(owner, handle)
-	if err != nil {
-		return nil, err
-	}
-	return concat(out, auth)
-}
-
-// NVWriteLock inhibits further writes on the given NV index if at least one of
-// the AttrWriteSTClear or AttrWriteDefine bits is set.
-//
-// AttrWriteSTClear causes the index to be locked until the TPM is restarted
-// (see the Startup function).
-//
-// AttrWriteDefine causes the index to be locked permanently if data has been
-// written to the index; otherwise the lock is removed on startup.
-//
-// NVWriteLock returns an error if neither bit is set.
-//
-// It is not an error to call NVWriteLock for an index that is already locked
-// for writing.
-func NVWriteLock(rw io.ReadWriter, owner, handle tpmutil.Handle, authString string) error {
-	Cmd, err := encodeLockNV(owner, handle, authString)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdWriteLockNV, tpmutil.RawBytes(Cmd))
-	return err
-}
-
-func decodeNVReadPublic(in []byte) (NVPublic, error) {
-	var pub NVPublic
-	var buf tpmutil.U16Bytes
-	if _, err := tpmutil.Unpack(in, &buf); err != nil {
-		return pub, err
-	}
-	_, err := tpmutil.Unpack(buf, &pub)
-	return pub, err
-}
-
-// NVReadPublic reads the public data of an NV index.
-func NVReadPublic(rw io.ReadWriter, index tpmutil.Handle) (NVPublic, error) {
-	// Read public area to determine data size.
-	resp, err := runCommand(rw, TagNoSessions, CmdReadPublicNV, index)
-	if err != nil {
-		return NVPublic{}, err
-	}
-	return decodeNVReadPublic(resp)
-}
-
-func decodeNVRead(in []byte) ([]byte, error) {
-	var paramSize uint32
-	var data tpmutil.U16Bytes
-	if _, err := tpmutil.Unpack(in, &paramSize, &data); err != nil {
-		return nil, err
-	}
-	return data, nil
-}
-
-func encodeNVRead(nvIndex, authHandle tpmutil.Handle, password string, offset, dataSize uint16) ([]byte, error) {
-	handles, err := tpmutil.Pack(authHandle, nvIndex)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(password)})
-	if err != nil {
-		return nil, err
-	}
-
-	params, err := tpmutil.Pack(dataSize, offset)
-	if err != nil {
-		return nil, err
-	}
-
-	return concat(handles, auth, params)
-}
-
-// NVRead reads a full data blob from an NV index. This function is
-// deprecated; use NVReadEx instead.
-func NVRead(rw io.ReadWriter, index tpmutil.Handle) ([]byte, error) {
-	return NVReadEx(rw, index, index, "", 0)
-}
-
-// NVReadEx reads a full data blob from an NV index, using the given
-// authorization handle. NVRead commands are done in blocks of blockSize.
-// If blockSize is 0, the TPM is queried for TPM_PT_NV_BUFFER_MAX, and that
-// value is used.
-func NVReadEx(rw io.ReadWriter, index, authHandle tpmutil.Handle, password string, blockSize int) ([]byte, error) {
-	if blockSize == 0 {
-		readBuff, _, err := GetCapability(rw, CapabilityTPMProperties, 1, uint32(NVMaxBufferSize))
-		if err != nil {
-			return nil, fmt.Errorf("GetCapability for TPM_PT_NV_BUFFER_MAX failed: %v", err)
-		}
-		if len(readBuff) != 1 {
-			return nil, fmt.Errorf("could not determine NVRAM read/write buffer size")
-		}
-		rb, ok := readBuff[0].(TaggedProperty)
-		if !ok {
-			return nil, fmt.Errorf("GetCapability returned unexpected type: %T, expected TaggedProperty", readBuff[0])
-		}
-		blockSize = int(rb.Value)
-	}
-
-	// Read public area to determine data size.
-	pub, err := NVReadPublic(rw, index)
-	if err != nil {
-		return nil, fmt.Errorf("decoding NV_ReadPublic response: %v", err)
-	}
-
-	// Read the NVRAM area in blocks.
-	outBuff := make([]byte, 0, int(pub.DataSize))
-	for len(outBuff) < int(pub.DataSize) {
-		readSize := blockSize
-		if readSize > (int(pub.DataSize) - len(outBuff)) {
-			readSize = int(pub.DataSize) - len(outBuff)
-		}
-
-		Cmd, err := encodeNVRead(index, authHandle, password, uint16(len(outBuff)), uint16(readSize))
-		if err != nil {
-			return nil, fmt.Errorf("building NV_Read command: %v", err)
-		}
-		resp, err := runCommand(rw, TagSessions, CmdReadNV, tpmutil.RawBytes(Cmd))
-		if err != nil {
-			return nil, fmt.Errorf("running NV_Read command (cursor=%d,size=%d): %v", len(outBuff), readSize, err)
-		}
-		data, err := decodeNVRead(resp)
-		if err != nil {
-			return nil, fmt.Errorf("decoding NV_Read command: %v", err)
-		}
-		outBuff = append(outBuff, data...)
-	}
-	return outBuff, nil
-}
-
-// NVReadLock inhibits further reads of the given NV index if AttrReadSTClear
-// is set. After the TPM is restarted the index can be read again (see the
-// Startup function).
-//
-// NVReadLock returns an error if the AttrReadSTClear bit is not set.
-//
-// It is not an error to call NVReadLock for an index that is already locked
-// for reading.
-func NVReadLock(rw io.ReadWriter, owner, handle tpmutil.Handle, authString string) error {
-	Cmd, err := encodeLockNV(owner, handle, authString)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdReadLockNV, tpmutil.RawBytes(Cmd))
-	return err
-}
-
-// decodeHash unpacks a successful response to TPM2_Hash, returning the computed digest and
-// validation ticket.
-func decodeHash(resp []byte) ([]byte, *Ticket, error) {
-	var digest tpmutil.U16Bytes
-	var validation Ticket
-
-	buf := bytes.NewBuffer(resp)
-	if err := tpmutil.UnpackBuf(buf, &digest, &validation); err != nil {
-		return nil, nil, err
-	}
-	return digest, &validation, nil
-}
-
-// Hash computes a hash of data in buf using TPM2_Hash, returning the computed
-// digest and validation ticket. The validation ticket serves as confirmation
-// from the TPM that the data in buf did not begin with TPM_GENERATED_VALUE.
-// NOTE: TPM2_Hash can only accept data up to MAX_DIGEST_BUFFER in size, which
-// is implementation-dependent, but guaranteed to be at least 1024 octets.
-func Hash(rw io.ReadWriter, alg Algorithm, buf tpmutil.U16Bytes, hierarchy tpmutil.Handle) (digest []byte, validation *Ticket, err error) {
-	resp, err := runCommand(rw, TagNoSessions, CmdHash, buf, alg, hierarchy)
-	if err != nil {
-		return nil, nil, err
-	}
-	return decodeHash(resp)
-}
-
-// HashSequenceStart starts a hash or an event sequence. If hashAlg is an
-// implemented hash, then a hash sequence is started. If hashAlg is
-// TPM_ALG_NULL, then an event sequence is started.
-func HashSequenceStart(rw io.ReadWriter, sequenceAuth string, hashAlg Algorithm) (seqHandle tpmutil.Handle, err error) {
-	resp, err := runCommand(rw, TagNoSessions, CmdHashSequenceStart, tpmutil.U16Bytes(sequenceAuth), hashAlg)
-	if err != nil {
-		return 0, err
-	}
-	var handle tpmutil.Handle
-	_, err = tpmutil.Unpack(resp, &handle)
-	return handle, err
-}
-
-func encodeSequenceUpdate(sequenceAuth string, seqHandle tpmutil.Handle, buf tpmutil.U16Bytes) ([]byte, error) {
-	ha, err := tpmutil.Pack(seqHandle)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(sequenceAuth)})
-	if err != nil {
-		return nil, err
-	}
-	params, err := tpmutil.Pack(buf)
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth, params)
-}
-
-// SequenceUpdate is used to add data to a hash or HMAC sequence.
-func SequenceUpdate(rw io.ReadWriter, sequenceAuth string, seqHandle tpmutil.Handle, buffer []byte) error {
-	cmd, err := encodeSequenceUpdate(sequenceAuth, seqHandle, buffer)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdSequenceUpdate, tpmutil.RawBytes(cmd))
-	return err
-}
-
-func decodeSequenceComplete(resp []byte) ([]byte, *Ticket, error) {
-	var digest tpmutil.U16Bytes
-	var validation Ticket
-	var paramSize uint32
-
-	if _, err := tpmutil.Unpack(resp, &paramSize, &digest, &validation); err != nil {
-		return nil, nil, err
-	}
-	return digest, &validation, nil
-}
-
-func encodeSequenceComplete(sequenceAuth string, seqHandle, hierarchy tpmutil.Handle, buf tpmutil.U16Bytes) ([]byte, error) {
-	ha, err := tpmutil.Pack(seqHandle)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(sequenceAuth)})
-	if err != nil {
-		return nil, err
-	}
-	params, err := tpmutil.Pack(buf, hierarchy)
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth, params)
-}
-
-// SequenceComplete adds the last part of data, if any, to a hash/HMAC sequence
-// and returns the result.
-func SequenceComplete(rw io.ReadWriter, sequenceAuth string, seqHandle, hierarchy tpmutil.Handle, buffer []byte) (digest []byte, validation *Ticket, err error) {
-	cmd, err := encodeSequenceComplete(sequenceAuth, seqHandle, hierarchy, buffer)
-	if err != nil {
-		return nil, nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdSequenceComplete, tpmutil.RawBytes(cmd))
-	if err != nil {
-		return nil, nil, err
-	}
-	return decodeSequenceComplete(resp)
-}
-
-func encodeEventSequenceComplete(auths []AuthCommand, pcrHandle, seqHandle tpmutil.Handle, buf tpmutil.U16Bytes) ([]byte, error) {
-	ha, err := tpmutil.Pack(pcrHandle, seqHandle)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(auths...)
-	if err != nil {
-		return nil, err
-	}
-	params, err := tpmutil.Pack(buf)
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth, params)
-}
-
-func decodeEventSequenceComplete(resp []byte) ([]*HashValue, error) {
-	var paramSize uint32
-	var hashCount uint32
-	var err error
-
-	buf := bytes.NewBuffer(resp)
-	if err := tpmutil.UnpackBuf(buf, &paramSize, &hashCount); err != nil {
-		return nil, err
-	}
-
-	buf.Truncate(int(paramSize))
-	digests := make([]*HashValue, hashCount)
-	for i := uint32(0); i < hashCount; i++ {
-		if digests[i], err = decodeHashValue(buf); err != nil {
-			return nil, err
-		}
-	}
-
-	return digests, nil
-}
-
-// EventSequenceComplete adds the last part of data, if any, to an Event
-// Sequence and returns the result in a digest list. If pcrHandle references a
-// PCR and not AlgNull, then the returned digest list is processed in the same
-// manner as the digest list input parameter to PCRExtend() with the pcrHandle
-// in each bank extended with the associated digest value.
-func EventSequenceComplete(rw io.ReadWriter, pcrAuth, sequenceAuth string, pcrHandle, seqHandle tpmutil.Handle, buffer []byte) (digests []*HashValue, err error) {
-	auth := []AuthCommand{
-		{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(pcrAuth)},
-		{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(sequenceAuth)},
-	}
-	cmd, err := encodeEventSequenceComplete(auth, pcrHandle, seqHandle, buffer)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdEventSequenceComplete, tpmutil.RawBytes(cmd))
-	if err != nil {
-		return nil, err
-	}
-	return decodeEventSequenceComplete(resp)
-}
-
-// Startup initializes a TPM (usually done by the OS).
-func Startup(rw io.ReadWriter, typ StartupType) error {
-	_, err := runCommand(rw, TagNoSessions, CmdStartup, typ)
-	return err
-}
-
-// Shutdown shuts down a TPM (usually done by the OS).
-func Shutdown(rw io.ReadWriter, typ StartupType) error {
-	_, err := runCommand(rw, TagNoSessions, CmdShutdown, typ)
-	return err
-}
-
-// nullTicket is a hard-coded null ticket of type TPMT_TK_HASHCHECK.
-// It is for Sign commands that do not require the TPM to verify that the digest
-// is not from data that started with TPM_GENERATED_VALUE.
-var nullTicket = Ticket{
-	Type:      TagHashCheck,
-	Hierarchy: HandleNull,
-	Digest:    tpmutil.U16Bytes{},
-}
-
-func encodeSign(sessionHandle, key tpmutil.Handle, password string, digest tpmutil.U16Bytes, sigScheme *SigScheme, validation *Ticket) ([]byte, error) {
-	ha, err := tpmutil.Pack(key)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: sessionHandle, Attributes: AttrContinueSession, Auth: []byte(password)})
-	if err != nil {
-		return nil, err
-	}
-	d, err := tpmutil.Pack(digest)
-	if err != nil {
-		return nil, err
-	}
-	s, err := sigScheme.encode()
-	if err != nil {
-		return nil, err
-	}
-	if validation == nil {
-		validation = &nullTicket
-	}
-	v, err := tpmutil.Pack(validation)
-	if err != nil {
-		return nil, err
-	}
-
-	return concat(ha, auth, d, s, v)
-}
-
-func decodeSign(buf []byte) (*Signature, error) {
-	in := bytes.NewBuffer(buf)
-	var paramSize uint32
-	if err := tpmutil.UnpackBuf(in, &paramSize); err != nil {
-		return nil, err
-	}
-	return DecodeSignature(in)
-}
-
-// SignWithSession computes a signature for digest using a given loaded key. Signature
-// algorithm depends on the key type. Used for keys with non-password authorization policies.
-// If 'key' references a Restricted Decryption key, 'validation' must be a valid hash verification
-// ticket from the TPM, which can be obtained by using Hash() to hash the data with the TPM.
-// If 'validation' is nil, a NULL ticket is passed to TPM2_Sign.
-func SignWithSession(rw io.ReadWriter, sessionHandle, key tpmutil.Handle, password string, digest []byte, validation *Ticket, sigScheme *SigScheme) (*Signature, error) {
-	Cmd, err := encodeSign(sessionHandle, key, password, digest, sigScheme, validation)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdSign, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return nil, err
-	}
-	return decodeSign(resp)
-}
-
-// Sign computes a signature for digest using a given loaded key. Signature
-// algorithm depends on the key type.
-// If 'key' references a Restricted Decryption key, 'validation' must be a valid hash verification
-// ticket from the TPM, which can be obtained by using Hash() to hash the data with the TPM.
-// If 'validation' is nil, a NULL ticket is passed to TPM2_Sign.
-func Sign(rw io.ReadWriter, key tpmutil.Handle, password string, digest []byte, validation *Ticket, sigScheme *SigScheme) (*Signature, error) {
-	return SignWithSession(rw, HandlePasswordSession, key, password, digest, validation, sigScheme)
-}
-
-func encodeCertify(objectAuth, signerAuth string, object, signer tpmutil.Handle, qualifyingData tpmutil.U16Bytes) ([]byte, error) {
-	ha, err := tpmutil.Pack(object, signer)
-	if err != nil {
-		return nil, err
-	}
-
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(objectAuth)}, AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(signerAuth)})
-	if err != nil {
-		return nil, err
-	}
-
-	scheme := SigScheme{Alg: AlgRSASSA, Hash: AlgSHA256}
-	// Use signing key's scheme.
-	s, err := scheme.encode()
-	if err != nil {
-		return nil, err
-	}
-	data, err := tpmutil.Pack(qualifyingData)
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth, data, s)
-}
-
-// This function differs from encodeCertify in that it takes the scheme to be used as an additional argument.
-func encodeCertifyEx(objectAuth, signerAuth string, object, signer tpmutil.Handle, qualifyingData tpmutil.U16Bytes, scheme SigScheme) ([]byte, error) {
-	ha, err := tpmutil.Pack(object, signer)
-	if err != nil {
-		return nil, err
-	}
-
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(objectAuth)}, AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(signerAuth)})
-	if err != nil {
-		return nil, err
-	}
-
-	s, err := scheme.encode()
-	if err != nil {
-		return nil, err
-	}
-	data, err := tpmutil.Pack(qualifyingData)
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth, data, s)
-}
-
-func decodeCertify(resp []byte) ([]byte, []byte, error) {
-	var paramSize uint32
-	var attest tpmutil.U16Bytes
-
-	buf := bytes.NewBuffer(resp)
-	if err := tpmutil.UnpackBuf(buf, &paramSize); err != nil {
-		return nil, nil, err
-	}
-	buf.Truncate(int(paramSize))
-	if err := tpmutil.UnpackBuf(buf, &attest); err != nil {
-		return nil, nil, err
-	}
-	return attest, buf.Bytes(), nil
-}
-
-// Certify generates a signature of a loaded TPM object with a signing key
-// signer. This function calls encodeCertify which makes use of the hardcoded
-// signing scheme {AlgRSASSA, AlgSHA256}. Returned values are: attestation data (TPMS_ATTEST),
-// signature and error, if any.
-func Certify(rw io.ReadWriter, objectAuth, signerAuth string, object, signer tpmutil.Handle, qualifyingData []byte) ([]byte, []byte, error) {
-	cmd, err := encodeCertify(objectAuth, signerAuth, object, signer, qualifyingData)
-	if err != nil {
-		return nil, nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdCertify, tpmutil.RawBytes(cmd))
-	if err != nil {
-		return nil, nil, err
-	}
-	return decodeCertify(resp)
-}
-
-// CertifyEx generates a signature of a loaded TPM object with a signing key
-// signer. This function differs from Certify in that it takes the scheme
-// to be used as an additional argument and calls encodeCertifyEx instead
-// of encodeCertify. Returned values are: attestation data (TPMS_ATTEST),
-// signature and error, if any.
-func CertifyEx(rw io.ReadWriter, objectAuth, signerAuth string, object, signer tpmutil.Handle, qualifyingData []byte, scheme SigScheme) ([]byte, []byte, error) {
-	cmd, err := encodeCertifyEx(objectAuth, signerAuth, object, signer, qualifyingData, scheme)
-	if err != nil {
-		return nil, nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdCertify, tpmutil.RawBytes(cmd))
-	if err != nil {
-		return nil, nil, err
-	}
-	return decodeCertify(resp)
-}
-
-func encodeCertifyCreation(objectAuth string, object, signer tpmutil.Handle, qualifyingData, creationHash tpmutil.U16Bytes, scheme SigScheme, ticket Ticket) ([]byte, error) {
-	handles, err := tpmutil.Pack(signer, object)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(objectAuth)})
-	if err != nil {
-		return nil, err
-	}
-	s, err := scheme.encode()
-	if err != nil {
-		return nil, err
-	}
-	params, err := tpmutil.Pack(qualifyingData, creationHash, tpmutil.RawBytes(s), ticket)
-	if err != nil {
-		return nil, err
-	}
-	return concat(handles, auth, params)
-}
-
-// CertifyCreation generates a signature of a newly-created &
-// loaded TPM object, using signer as the signing key.
-func CertifyCreation(rw io.ReadWriter, objectAuth string, object, signer tpmutil.Handle, qualifyingData, creationHash []byte, sigScheme SigScheme, creationTicket Ticket) (attestation, signature []byte, err error) {
-	Cmd, err := encodeCertifyCreation(objectAuth, object, signer, qualifyingData, creationHash, sigScheme, creationTicket)
-	if err != nil {
-		return nil, nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdCertifyCreation, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return nil, nil, err
-	}
-	return decodeCertify(resp)
-}
-
-func runCommand(rw io.ReadWriter, tag tpmutil.Tag, Cmd tpmutil.Command, in ...interface{}) ([]byte, error) {
-	resp, code, err := tpmutil.RunCommand(rw, tag, Cmd, in...)
-	if err != nil {
-		return nil, err
-	}
-	if code != tpmutil.RCSuccess {
-		return nil, decodeResponse(code)
-	}
-	return resp, decodeResponse(code)
-}
-
-// concat is a helper for encoding functions that separately encode handle,
-// auth and param areas. A nil error is always returned, so that callers can
-// simply return concat(a, b, c).
-func concat(chunks ...[]byte) ([]byte, error) {
-	return bytes.Join(chunks, nil), nil
-}
-
-func encodePCRExtend(pcr tpmutil.Handle, hashAlg Algorithm, hash tpmutil.RawBytes, password string) ([]byte, error) {
-	ha, err := tpmutil.Pack(pcr)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(password)})
-	if err != nil {
-		return nil, err
-	}
-	pcrCount := uint32(1)
-	extend, err := tpmutil.Pack(pcrCount, hashAlg, hash)
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth, extend)
-}
-
-// PCRExtend extends a value into the selected PCR
-func PCRExtend(rw io.ReadWriter, pcr tpmutil.Handle, hashAlg Algorithm, hash []byte, password string) error {
-	Cmd, err := encodePCRExtend(pcr, hashAlg, hash, password)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdPCRExtend, tpmutil.RawBytes(Cmd))
-	return err
-}
-
-// ReadPCR reads the value of the given PCR.
-func ReadPCR(rw io.ReadWriter, pcr int, hashAlg Algorithm) ([]byte, error) {
-	pcrSelection := PCRSelection{
-		Hash: hashAlg,
-		PCRs: []int{pcr},
-	}
-	pcrVals, err := ReadPCRs(rw, pcrSelection)
-	if err != nil {
-		return nil, fmt.Errorf("unable to read PCRs from TPM: %v", err)
-	}
-	pcrVal, present := pcrVals[pcr]
-	if !present {
-		return nil, fmt.Errorf("PCR %d value missing from response", pcr)
-	}
-	return pcrVal, nil
-}
-
-func encodePCRReset(pcr tpmutil.Handle) ([]byte, error) {
-	ha, err := tpmutil.Pack(pcr)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: EmptyAuth})
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth)
-}
-
-// PCRReset resets the value of the given PCR. Usually, only PCR 16 (Debug) and
-// PCR 23 (Application) are resettable on the default locality.
-func PCRReset(rw io.ReadWriter, pcr tpmutil.Handle) error {
-	Cmd, err := encodePCRReset(pcr)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdPCRReset, tpmutil.RawBytes(Cmd))
-	return err
-}
-
-// EncryptSymmetric encrypts data using a symmetric key.
-//
-// WARNING: This command performs low-level cryptographic operations.
-// Secure use of this command is subtle and requires careful analysis.
-// Please consult with experts in cryptography for how to use it securely.
-//
-// The iv is the initialization vector. The iv must not be empty and its size depends on the
-// details of the symmetric encryption scheme.
-//
-// The data may be longer than block size, EncryptSymmetric will chain
-// multiple TPM calls to encrypt the entire blob.
-//
-// Key handle should point at SymCipher object which is a child of the key (and
-// not e.g. RSA key itself).
-func EncryptSymmetric(rw io.ReadWriteCloser, keyAuth string, key tpmutil.Handle, iv, data []byte) ([]byte, error) {
-	return encryptDecryptSymmetric(rw, keyAuth, key, iv, data, false)
-}
-
-// DecryptSymmetric decrypts data using a symmetric key.
-//
-// WARNING: This command performs low-level cryptographic operations.
-// Secure use of this command is subtle and requires careful analysis.
-// Please consult with experts in cryptography for how to use it securely.
-//
-// The iv is the initialization vector. The iv must not be empty and its size
-// depends on the details of the symmetric encryption scheme.
-//
-// The data may be longer than block size, DecryptSymmetric will chain multiple
-// TPM calls to decrypt the entire blob.
-//
-// Key handle should point at SymCipher object which is a child of the key (and
-// not e.g. RSA key itself).
-func DecryptSymmetric(rw io.ReadWriteCloser, keyAuth string, key tpmutil.Handle, iv, data []byte) ([]byte, error) {
-	return encryptDecryptSymmetric(rw, keyAuth, key, iv, data, true)
-}
-
-func encodeEncryptDecrypt(keyAuth string, key tpmutil.Handle, iv, data tpmutil.U16Bytes, decrypt bool) ([]byte, error) {
-	ha, err := tpmutil.Pack(key)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(keyAuth)})
-	if err != nil {
-		return nil, err
-	}
-	// Use encryption key's mode.
-	params, err := tpmutil.Pack(decrypt, AlgNull, iv, data)
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth, params)
-}
-
-func encodeEncryptDecrypt2(keyAuth string, key tpmutil.Handle, iv, data tpmutil.U16Bytes, decrypt bool) ([]byte, error) {
-	ha, err := tpmutil.Pack(key)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(keyAuth)})
-	if err != nil {
-		return nil, err
-	}
-	// Use encryption key's mode.
-	params, err := tpmutil.Pack(data, decrypt, AlgNull, iv)
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth, params)
-}
-
-func decodeEncryptDecrypt(resp []byte) ([]byte, []byte, error) {
-	var paramSize uint32
-	var out, nextIV tpmutil.U16Bytes
-	if _, err := tpmutil.Unpack(resp, &paramSize, &out, &nextIV); err != nil {
-		return nil, nil, err
-	}
-	return out, nextIV, nil
-}
-
-func encryptDecryptBlockSymmetric(rw io.ReadWriteCloser, keyAuth string, key tpmutil.Handle, iv, data []byte, decrypt bool) ([]byte, []byte, error) {
-	Cmd, err := encodeEncryptDecrypt2(keyAuth, key, iv, data, decrypt)
-	if err != nil {
-		return nil, nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdEncryptDecrypt2, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		fmt0Err, ok := err.(Error)
-		if ok && fmt0Err.Code == RCCommandCode {
-			// If TPM2_EncryptDecrypt2 is not supported, fall back to
-			// TPM2_EncryptDecrypt.
-			Cmd, _ := encodeEncryptDecrypt(keyAuth, key, iv, data, decrypt)
-			resp, err = runCommand(rw, TagSessions, CmdEncryptDecrypt, tpmutil.RawBytes(Cmd))
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	return decodeEncryptDecrypt(resp)
-}
-
-func encryptDecryptSymmetric(rw io.ReadWriteCloser, keyAuth string, key tpmutil.Handle, iv, data []byte, decrypt bool) ([]byte, error) {
-	var out, block []byte
-	var err error
-
-	for rest := data; len(rest) > 0; {
-		if len(rest) > maxDigestBuffer {
-			block, rest = rest[:maxDigestBuffer], rest[maxDigestBuffer:]
-		} else {
-			block, rest = rest, nil
-		}
-		block, iv, err = encryptDecryptBlockSymmetric(rw, keyAuth, key, iv, block, decrypt)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, block...)
-	}
-
-	return out, nil
-}
-
-func encodeRSAEncrypt(key tpmutil.Handle, message tpmutil.U16Bytes, scheme *AsymScheme, label string) ([]byte, error) {
-	ha, err := tpmutil.Pack(key)
-	if err != nil {
-		return nil, err
-	}
-	m, err := tpmutil.Pack(message)
-	if err != nil {
-		return nil, err
-	}
-	s, err := scheme.encode()
-	if err != nil {
-		return nil, err
-	}
-	if label != "" {
-		label += "\x00"
-	}
-	l, err := tpmutil.Pack(tpmutil.U16Bytes(label))
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, m, s, l)
+	return &rsp, nil
 }
 
-func decodeRSAEncrypt(resp []byte) ([]byte, error) {
-	var out tpmutil.U16Bytes
-	_, err := tpmutil.Unpack(resp, &out)
-	return out, err
-}
-
-// RSAEncrypt performs RSA encryption in the TPM according to RFC 3447. The key must be
-// a (public) key loaded into the TPM beforehand. Note that when using OAEP with a label,
-// a null byte is appended to the label and the null byte is included in the padding
-// scheme.
-func RSAEncrypt(rw io.ReadWriter, key tpmutil.Handle, message []byte, scheme *AsymScheme, label string) ([]byte, error) {
-	Cmd, err := encodeRSAEncrypt(key, message, scheme, label)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := runCommand(rw, TagNoSessions, CmdRSAEncrypt, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return nil, err
-	}
-	return decodeRSAEncrypt(resp)
-}
+// NVReadLockResponse is the response from TPM2_NV_ReadLock.
+type NVReadLockResponse struct{}
 
-func encodeRSADecrypt(key tpmutil.Handle, password string, message tpmutil.U16Bytes, scheme *AsymScheme, label string) ([]byte, error) {
-	ha, err := tpmutil.Pack(key)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(password)})
-	if err != nil {
-		return nil, err
-	}
-	m, err := tpmutil.Pack(message)
-	if err != nil {
-		return nil, err
-	}
-	s, err := scheme.encode()
-	if err != nil {
-		return nil, err
-	}
-	if label != "" {
-		label += "\x00"
-	}
-	l, err := tpmutil.Pack(tpmutil.U16Bytes(label))
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth, m, s, l)
+// NVCertify is the input to TPM2_NV_Certify.
+// See definition in Part 3, Commands, section 31.16.
+type NVCertify struct {
+	// handle of the key used to sign the attestation structure
+	SignHandle handle `gotpm:"handle,auth"`
+	// handle indicating the source of the authorization value
+	AuthHandle handle `gotpm:"handle,auth"`
+	// Index for the area to be certified
+	NVIndex handle `gotpm:"handle"`
+	// user-provided qualifying data
+	QualifyingData TPM2BData
+	// signing scheme to use if the scheme for signHandle is TPM_ALG_NULL
+	InScheme TPMTSigScheme `gotpm:"nullable"`
+	// number of octets to certify
+	Size uint16
+	// octet offset into the NV area
+	Offset uint16
 }
 
-func decodeRSADecrypt(resp []byte) ([]byte, error) {
-	var out tpmutil.U16Bytes
-	var paramSize uint32
-	_, err := tpmutil.Unpack(resp, &paramSize, &out)
-	return out, err
-}
+// Command implements the Command interface.
+func (NVCertify) Command() TPMCC { return TPMCCNVCertify }
 
-// RSADecrypt performs RSA decryption in the TPM according to RFC 3447. The key must be
-// a private RSA key in the TPM with FlagDecrypt set. Note that when using OAEP with a
-// label, a null byte is appended to the label and the null byte is included in the
-// padding scheme.
-func RSADecrypt(rw io.ReadWriter, key tpmutil.Handle, password string, message []byte, scheme *AsymScheme, label string) ([]byte, error) {
-	Cmd, err := encodeRSADecrypt(key, password, message, scheme, label)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdRSADecrypt, tpmutil.RawBytes(Cmd))
-	if err != nil {
+// Execute executes the command and returns the response.
+func (cmd NVCertify) Execute(t transport.TPM, s ...Session) (*NVCertifyResponse, error) {
+	var rsp NVCertifyResponse
+	if err := execute[NVCertifyResponse](t, cmd, &rsp, s...); err != nil {
 		return nil, err
-	}
-	return decodeRSADecrypt(resp)
-}
-
-func encodeECDHKeyGen(key tpmutil.Handle) ([]byte, error) {
-	return tpmutil.Pack(key)
-}
-
-func decodeECDHKeyGen(resp []byte) (*ECPoint, *ECPoint, error) {
-	// Unpack z and pub as TPM2B_ECC_POINT, which is a TPMS_ECC_POINT with a total size prepended.
-	var z2B, pub2B tpmutil.U16Bytes
-	_, err := tpmutil.Unpack(resp, &z2B, &pub2B)
-	if err != nil {
-		return nil, nil, err
-	}
-	var zPoint, pubPoint ECPoint
-	_, err = tpmutil.Unpack(z2B, &zPoint.XRaw, &zPoint.YRaw)
-	if err != nil {
-		return nil, nil, err
 	}
-	_, err = tpmutil.Unpack(pub2B, &pubPoint.XRaw, &pubPoint.YRaw)
-	if err != nil {
-		return nil, nil, err
-	}
-	return &zPoint, &pubPoint, nil
+	return &rsp, nil
 }
 
-// ECDHKeyGen generates an ephemeral ECC key, calculates the ECDH point multiplcation of the
-// ephemeral private key and a loaded public key, and returns the public ephemeral point along with
-// the coordinates of the resulting point.
-func ECDHKeyGen(rw io.ReadWriter, key tpmutil.Handle) (zPoint, pubPoint *ECPoint, err error) {
-	Cmd, err := encodeECDHKeyGen(key)
-	if err != nil {
-		return nil, nil, err
-	}
-	resp, err := runCommand(rw, TagNoSessions, CmdECDHKeyGen, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return nil, nil, err
-	}
-	return decodeECDHKeyGen(resp)
+// NVCertifyResponse is the response from TPM2_NV_Read.
+type NVCertifyResponse struct {
+	// the structure that was signed
+	CertifyInfo TPM2BAttest
+	// the asymmetric signature over certifyInfo using the key referenced by signHandle
+	Signature TPMTSignature
 }
 
-func encodeECDHZGen(key tpmutil.Handle, password string, inPoint ECPoint) ([]byte, error) {
-	ha, err := tpmutil.Pack(key)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := encodeAuthArea(AuthCommand{Session: HandlePasswordSession, Attributes: AttrContinueSession, Auth: []byte(password)})
-	if err != nil {
-		return nil, err
-	}
-	p, err := tpmutil.Pack(inPoint)
-	if err != nil {
-		return nil, err
-	}
-	// Pack the TPMS_ECC_POINT as a TPM2B_ECC_POINT.
-	p2B, err := tpmutil.Pack(tpmutil.U16Bytes(p))
-	if err != nil {
-		return nil, err
-	}
-	return concat(ha, auth, p2B)
+// GetTime is the input to TPM2_GetTime.
+// See definition in Part 3, Commands, section 18.7.
+type GetTime struct {
+	// handle of the privacy administrator (Must be the value TPM_RH_ENDORSEMENT or command will fail)
+	PrivacyAdminHandle TPMIRHEndorsement `gotpm:"handle,auth"`
+	// the keyHandle identifier of a loaded key that can perform digital signatures
+	SignHandle handle `gotpm:"handle,auth"`
+	// data to "tick stamp"
+	QualifyingData TPM2BData
+	// signing scheme to use if the scheme for signHandle is TPM_ALG_NULL
+	InScheme TPMTSigScheme `gotpm:"nullable"`
 }
 
-func decodeECDHZGen(resp []byte) (*ECPoint, error) {
-	var paramSize uint32
-	// Unpack a TPM2B_ECC_POINT, which is a TPMS_ECC_POINT with a total size prepended.
-	var z2B tpmutil.U16Bytes
-	_, err := tpmutil.Unpack(resp, &paramSize, &z2B)
-	if err != nil {
-		return nil, err
-	}
-	var zPoint ECPoint
-	_, err = tpmutil.Unpack(z2B, &zPoint.XRaw, &zPoint.YRaw)
-	if err != nil {
-		return nil, err
-	}
-	return &zPoint, nil
-}
+// Command implements the Command interface.
+func (GetTime) Command() TPMCC { return TPMCCGetTime }
 
-// ECDHZGen performs ECDH point multiplication between a private key held in the TPM and a given
-// public point, returning the coordinates of the resulting point. The key must have FlagDecrypt
-// set.
-func ECDHZGen(rw io.ReadWriter, key tpmutil.Handle, password string, inPoint ECPoint) (zPoint *ECPoint, err error) {
-	Cmd, err := encodeECDHZGen(key, password, inPoint)
-	if err != nil {
+// Execute executes the command and returns the response.
+func (cmd GetTime) Execute(t transport.TPM, s ...Session) (*GetTimeResponse, error) {
+	var rsp GetTimeResponse
+	if err := execute[GetTimeResponse](t, cmd, &rsp, s...); err != nil {
 		return nil, err
-	}
-	resp, err := runCommand(rw, TagSessions, CmdECDHZGen, tpmutil.RawBytes(Cmd))
-	if err != nil {
-		return nil, err
-	}
-	return decodeECDHZGen(resp)
-}
-
-// DictionaryAttackLockReset cancels the effect of a TPM lockout due to a number
-// of successive authorization failures, by setting the lockout counter to zero.
-// The command requires Lockout Authorization and only one lockoutAuth authorization
-// failure is allowed for this command during a lockoutRecovery interval.
-// Lockout Authorization value by default is empty and can be changed via
-// a call to HierarchyChangeAuth(HandleLockout).
-func DictionaryAttackLockReset(rw io.ReadWriter, auth AuthCommand) error {
-	ha, err := tpmutil.Pack(HandleLockout)
-	if err != nil {
-		return err
-	}
-	encodedAuth, err := encodeAuthArea(auth)
-	if err != nil {
-		return err
-	}
-	Cmd, err := concat(ha, encodedAuth)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdDictionaryAttackLockReset, tpmutil.RawBytes(Cmd))
-	return err
-}
-
-// DictionaryAttackParameters changes the lockout parameters.
-// The command requires Lockout Authorization and has same authorization policy
-// as in DictionaryAttackLockReset.
-func DictionaryAttackParameters(rw io.ReadWriter, auth AuthCommand, maxTries, recoveryTime, lockoutRecovery uint32) error {
-	ha, err := tpmutil.Pack(HandleLockout)
-	if err != nil {
-		return err
 	}
-	encodedAuth, err := encodeAuthArea(auth)
-	if err != nil {
-		return err
-	}
-	params, err := tpmutil.Pack(maxTries, recoveryTime, lockoutRecovery)
-	if err != nil {
-		return err
-	}
-	Cmd, err := concat(ha, encodedAuth, params)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagSessions, CmdDictionaryAttackParameters, tpmutil.RawBytes(Cmd))
-	return err
+	return &rsp, nil
 }
 
-// PolicyCommandCode indicates that the authorization will be limited to a specific command code
-func PolicyCommandCode(rw io.ReadWriter, session tpmutil.Handle, cc tpmutil.Command) error {
-	data, err := tpmutil.Pack(session, cc)
-	if err != nil {
-		return err
-	}
-	_, err = runCommand(rw, TagNoSessions, CmdPolicyCommandCode, data)
-	return err
+// GetTimeResponse is the response from TPM2_GetTime.
+type GetTimeResponse struct {
+	// standard TPM-generated attestation block
+	TimeInfo TPM2BAttest
+	// the signature over timeInfo
+	Signature TPMTSignature
 }
