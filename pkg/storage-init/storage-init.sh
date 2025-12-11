@@ -174,7 +174,7 @@ if is_first_boot_virt_eve || is_first_boot_eval_eve; then
    # now that GPT itself is fixed, lets add IMGB & P3 partitions
    IMGA_ID=$(sgdisk -p "$DEV" | grep "IMGA$" | awk '{print $1;}')
    IMGB_ID=$((IMGA_ID + 1))
-   P3_ID=$((IMGA_ID + 7))
+   P3_ID=$(sgdisk -p "$DEV" | grep "P3$" | awk '{print $1;}')
 
    IMGA_SIZE=$(sgdisk -i "$IMGA_ID" "$DEV" | awk '/^Partition size:/ { print $3; }')
    IMGA_GUID=$(sgdisk -i "$IMGA_ID" "$DEV" | awk '/^Partition GUID code:/ { print $4; }')
