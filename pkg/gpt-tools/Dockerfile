@@ -49,8 +49,10 @@ WORKDIR /
 COPY vboot_reference-${VBOOT_COMMIT}.tar.gz /
 RUN tar xvzf vboot_reference-${VBOOT_COMMIT}.tar.gz
 
+COPY patches/cgpt* /vboot_reference/
 WORKDIR /vboot_reference
 RUN [ -d host/arch/riscv64 ] || cp -r host/arch/arm host/arch/riscv64
+RUN set -e && patch -Np1 < cgpt-0002-change-to-4KB-sector.patch
 RUN make cgpt LDFLAGS=-static CFLAGS=-Wno-error=address-of-packed-member
 RUN cp build/cgpt/cgpt /out/cgpt
 
