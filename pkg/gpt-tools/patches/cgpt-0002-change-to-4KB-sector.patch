@@ -1,0 +1,12 @@
+diff -uprN a/firmware/lib/cgptlib/cgptlib_internal.c b/firmware/lib/cgptlib/cgptlib_internal.c
+--- a/firmware/lib/cgptlib/cgptlib_internal.c	2018-09-05 20:01:43.000000000 +0200
++++ b/firmware/lib/cgptlib/cgptlib_internal.c	2025-12-15 13:43:24.107912036 +0100
+@@ -12,7 +12,7 @@
+ #include "gpt_misc.h"
+ #include "utility.h"
+ 
+-const static int SECTOR_SIZE = 512;
++const static int SECTOR_SIZE = 4096;
+ 
+ size_t CalculateEntriesSectors(GptHeader* h)
+ {
