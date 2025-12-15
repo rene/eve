@@ -1,0 +1,243 @@
+diff -uprN vboot_reference/cgpt/cgpt_common.c vboot_reference-rsp/cgpt/cgpt_common.c
+--- vboot_reference/cgpt/cgpt_common.c	2018-09-05 20:01:43.000000000 +0200
++++ vboot_reference-rsp/cgpt/cgpt_common.c	2026-02-23 18:26:34.374640376 +0100
+@@ -191,11 +191,11 @@ static int GptLoad(struct drive *drive,
+   GptHeader* primary_header = (GptHeader*)drive->gpt.primary_header;
+   if (CheckHeader(primary_header, 0, drive->gpt.streaming_drive_sectors,
+                   drive->gpt.gpt_drive_sectors,
+-                  drive->gpt.flags) == 0) {
++                  drive->gpt.flags, drive->gpt.sector_bytes) == 0) {
+     if (CGPT_OK != Load(drive, &drive->gpt.primary_entries,
+                         primary_header->entries_lba,
+                         drive->gpt.sector_bytes,
+-                        CalculateEntriesSectors(primary_header))) {
++                        CalculateEntriesSectors(primary_header, drive->gpt.sector_bytes))) {
+       Error("Cannot read primary partition entry array\n");
+       return -1;
+     }
+@@ -209,11 +209,11 @@ static int GptLoad(struct drive *drive,
+   GptHeader* secondary_header = (GptHeader*)drive->gpt.secondary_header;
+   if (CheckHeader(secondary_header, 1, drive->gpt.streaming_drive_sectors,
+                   drive->gpt.gpt_drive_sectors,
+-                  drive->gpt.flags) == 0) {
++                  drive->gpt.flags, drive->gpt.sector_bytes) == 0) {
+     if (CGPT_OK != Load(drive, &drive->gpt.secondary_entries,
+                         secondary_header->entries_lba,
+                         drive->gpt.sector_bytes,
+-                        CalculateEntriesSectors(secondary_header))) {
++                        CalculateEntriesSectors(secondary_header, drive->gpt.sector_bytes))) {
+       Error("Cannot read secondary partition entry array\n");
+       return -1;
+     }
+@@ -244,7 +244,7 @@ static int GptSave(struct drive *drive)
+       if (CGPT_OK != Save(drive, drive->gpt.primary_entries,
+                           primary_header->entries_lba,
+                           drive->gpt.sector_bytes,
+-                          CalculateEntriesSectors(primary_header))) {
++                          CalculateEntriesSectors(primary_header, drive->gpt.sector_bytes))) {
+         errors++;
+         Error("Cannot write primary entries: %s\n", strerror(errno));
+       }
+@@ -273,7 +273,7 @@ static int GptSave(struct drive *drive)
+       if (CGPT_OK != Save(drive, drive->gpt.secondary_entries,
+                           secondary_header->entries_lba,
+                           drive->gpt.sector_bytes,
+-                          CalculateEntriesSectors(secondary_header))) {
++                          CalculateEntriesSectors(secondary_header, drive->gpt.sector_bytes))) {
+         errors++;
+         Error("Cannot write secondary entries: %s\n", strerror(errno));
+       }
+@@ -1001,7 +1001,7 @@ uint8_t RepairHeader(GptData *gpt, const
+     secondary_header->my_lba = gpt->gpt_drive_sectors - 1;  /* the last sector */
+     secondary_header->alternate_lba = primary_header->my_lba;
+     secondary_header->entries_lba = secondary_header->my_lba -
+-        CalculateEntriesSectors(primary_header);
++        CalculateEntriesSectors(primary_header, gpt->sector_bytes);
+     return GPT_MODIFIED_HEADER2;
+   } else if (valid_headers == MASK_SECONDARY) {
+     memcpy(primary_header, secondary_header, sizeof(GptHeader));
+diff -uprN vboot_reference/cgpt/cgpt_create.c vboot_reference-rsp/cgpt/cgpt_create.c
+--- vboot_reference/cgpt/cgpt_create.c	2018-09-05 20:01:43.000000000 +0200
++++ vboot_reference-rsp/cgpt/cgpt_create.c	2026-02-23 18:27:18.298649591 +0100
+@@ -81,9 +81,9 @@ static int GptCreate(struct drive *drive
+     h->entries_lba = h->my_lba + GPT_HEADER_SECTORS;
+     if (!(drive->gpt.flags & GPT_FLAG_EXTERNAL)) {
+       h->entries_lba += params->padding;
+-      h->first_usable_lba = h->entries_lba + CalculateEntriesSectors(h);
++      h->first_usable_lba = h->entries_lba + CalculateEntriesSectors(h, drive->gpt.sector_bytes);
+       h->last_usable_lba = (drive->gpt.streaming_drive_sectors - GPT_HEADER_SECTORS -
+-                            CalculateEntriesSectors(h) - 1);
++                            CalculateEntriesSectors(h, drive->gpt.sector_bytes) - 1);
+     } else {
+       h->first_usable_lba = params->padding;
+       h->last_usable_lba = (drive->gpt.streaming_drive_sectors - 1);
+diff -uprN vboot_reference/cgpt/cgpt_show.c vboot_reference-rsp/cgpt/cgpt_show.c
+--- vboot_reference/cgpt/cgpt_show.c	2018-09-05 20:01:43.000000000 +0200
++++ vboot_reference-rsp/cgpt/cgpt_show.c	2026-02-23 18:28:10.011855885 +0100
+@@ -299,7 +299,7 @@ static int GptShow(struct drive *drive,
+ 
+       GptHeader* primary_header = (GptHeader*)drive->gpt.primary_header;
+       printf(GPT_FMT, (uint64_t)primary_header->entries_lba,
+-             (uint64_t)CalculateEntriesSectors(primary_header),
++             (uint64_t)CalculateEntriesSectors(primary_header, drive->gpt.sector_bytes),
+              drive->gpt.valid_entries & MASK_PRIMARY ? "" : "INVALID",
+              "Pri GPT table");
+ 
+@@ -316,7 +316,7 @@ static int GptShow(struct drive *drive,
+     } else {
+       GptHeader* secondary_header = (GptHeader*)drive->gpt.secondary_header;
+       printf(GPT_FMT, (uint64_t)secondary_header->entries_lba,
+-             (uint64_t)CalculateEntriesSectors(secondary_header),
++             (uint64_t)CalculateEntriesSectors(secondary_header, drive->gpt.sector_bytes),
+              drive->gpt.valid_entries & MASK_SECONDARY ? "" : "INVALID",
+              "Sec GPT table");
+       /* We show secondary table details if any of following is true.
+diff -uprN vboot_reference/firmware/lib/cgptlib/cgptlib_internal.c vboot_reference-rsp/firmware/lib/cgptlib/cgptlib_internal.c
+--- vboot_reference/firmware/lib/cgptlib/cgptlib_internal.c	2018-09-05 20:01:43.000000000 +0200
++++ vboot_reference-rsp/firmware/lib/cgptlib/cgptlib_internal.c	2026-02-23 18:23:37.929501868 +0100
+@@ -12,21 +12,15 @@
+ #include "gpt_misc.h"
+ #include "utility.h"
+ 
+-const static int SECTOR_SIZE = 512;
+-
+-size_t CalculateEntriesSectors(GptHeader* h)
++size_t CalculateEntriesSectors(GptHeader* h, int sector_size)
+ {
+ 	size_t bytes = h->number_of_entries * h->size_of_entry;
+-	size_t ret = (bytes + SECTOR_SIZE - 1) / SECTOR_SIZE;
++	size_t ret = (bytes + sector_size - 1) / sector_size;
+ 	return ret;
+ }
+ 
+ int CheckParameters(GptData *gpt)
+ {
+-	/* Currently, we only support 512-byte sectors. */
+-	if (gpt->sector_bytes != SECTOR_SIZE)
+-		return GPT_ERROR_INVALID_SECTOR_SIZE;
+-
+ 	/*
+ 	 * gpt_drive_sectors should be reasonable. It cannot be unset, and it
+ 	 * cannot differ from streaming_drive_sectors if the GPT structs are
+@@ -45,7 +39,7 @@ int CheckParameters(GptData *gpt)
+ 	 */
+ 	if (gpt->gpt_drive_sectors <
+ 		(1 + 2 * (1 + MIN_NUMBER_OF_ENTRIES /
+-				(SECTOR_SIZE / sizeof(GptEntry)))))
++				(gpt->sector_bytes / sizeof(GptEntry)))))
+ 		return GPT_ERROR_INVALID_SECTOR_NUMBER;
+ 
+ 	return GPT_SUCCESS;
+@@ -66,7 +60,8 @@ uint32_t HeaderCrc(GptHeader *h)
+ 
+ int CheckHeader(GptHeader *h, int is_secondary,
+ 		uint64_t streaming_drive_sectors,
+-		uint64_t gpt_drive_sectors, uint32_t flags)
++		uint64_t gpt_drive_sectors, uint32_t flags,
++		int sector_size)
+ {
+ 	if (!h)
+ 		return 1;
+@@ -115,7 +110,7 @@ int CheckHeader(GptHeader *h, int is_sec
+ 	if (is_secondary) {
+ 		if (h->my_lba != gpt_drive_sectors - GPT_HEADER_SECTORS)
+ 			return 1;
+-		if (h->entries_lba != h->my_lba - CalculateEntriesSectors(h))
++		if (h->entries_lba != h->my_lba - CalculateEntriesSectors(h, sector_size))
+ 			return 1;
+ 	} else {
+ 		if (h->my_lba != GPT_PMBR_SECTORS)
+@@ -141,10 +136,10 @@ int CheckHeader(GptHeader *h, int is_sec
+ 	 * array.
+ 	 */
+ 	/* TODO(namnguyen): Also check for padding between header & entries. */
+-	if (h->first_usable_lba < 2 + CalculateEntriesSectors(h))
++	if (h->first_usable_lba < 2 + CalculateEntriesSectors(h, sector_size))
+ 		return 1;
+ 	if (h->last_usable_lba >=
+-			streaming_drive_sectors - 1 - CalculateEntriesSectors(h))
++			streaming_drive_sectors - 1 - CalculateEntriesSectors(h, sector_size))
+ 		return 1;
+ 
+ 	/* Success */
+@@ -254,7 +249,7 @@ int GptSanityCheck(GptData *gpt)
+ 
+ 	/* Check both headers; we need at least one valid header. */
+ 	if (0 == CheckHeader(header1, 0, gpt->streaming_drive_sectors,
+-			     gpt->gpt_drive_sectors, gpt->flags)) {
++			     gpt->gpt_drive_sectors, gpt->flags, gpt->sector_bytes)) {
+ 		gpt->valid_headers |= MASK_PRIMARY;
+ 		goodhdr = header1;
+ 	} else if (header1 && !memcmp(header1->signature,
+@@ -262,7 +257,7 @@ int GptSanityCheck(GptData *gpt)
+ 		gpt->ignored |= MASK_PRIMARY;
+ 	}
+ 	if (0 == CheckHeader(header2, 1, gpt->streaming_drive_sectors,
+-			     gpt->gpt_drive_sectors, gpt->flags)) {
++			     gpt->gpt_drive_sectors, gpt->flags, gpt->sector_bytes)) {
+ 		gpt->valid_headers |= MASK_SECONDARY;
+ 		if (!goodhdr)
+ 			goodhdr = header2;
+@@ -347,7 +342,7 @@ void GptRepair(GptData *gpt)
+ 		memcpy(header2, header1, sizeof(GptHeader));
+ 		header2->my_lba = gpt->gpt_drive_sectors - GPT_HEADER_SECTORS;
+ 		header2->alternate_lba = GPT_PMBR_SECTORS;  /* Second sector. */
+-		header2->entries_lba = header2->my_lba - CalculateEntriesSectors(header1);
++		header2->entries_lba = header2->my_lba - CalculateEntriesSectors(header1, gpt->sector_bytes);
+ 		header2->header_crc32 = HeaderCrc(header2);
+ 		gpt->modified |= GPT_MODIFIED_HEADER2;
+ 	}
+diff -uprN vboot_reference/firmware/lib/cgptlib/include/cgptlib_internal.h vboot_reference-rsp/firmware/lib/cgptlib/include/cgptlib_internal.h
+--- vboot_reference/firmware/lib/cgptlib/include/cgptlib_internal.h	2018-09-05 20:01:43.000000000 +0200
++++ vboot_reference-rsp/firmware/lib/cgptlib/include/cgptlib_internal.h	2026-02-23 18:23:02.288751008 +0100
+@@ -91,7 +91,8 @@ int CheckParameters(GptData* gpt);
+  */
+ int CheckHeader(GptHeader *h, int is_secondary,
+ 		uint64_t streaming_drive_sectors,
+-		uint64_t gpt_drive_sectors, uint32_t flags);
++		uint64_t gpt_drive_sectors, uint32_t flags,
++		int sector_size);
+ 
+ /**
+  * Calculate and return the header CRC.
+@@ -160,6 +161,6 @@ const char *GptErrorText(int error_code)
+ /**
+  * Return number of 512-byte sectors required to store the entries table.
+  */
+-size_t CalculateEntriesSectors(GptHeader* h);
++size_t CalculateEntriesSectors(GptHeader* h, int sector_size);
+ 
+ #endif /* VBOOT_REFERENCE_CGPTLIB_INTERNAL_H_ */
+diff -uprN vboot_reference/firmware/lib/gpt_misc.c vboot_reference-rsp/firmware/lib/gpt_misc.c
+--- vboot_reference/firmware/lib/gpt_misc.c	2018-09-05 20:01:43.000000000 +0200
++++ vboot_reference-rsp/firmware/lib/gpt_misc.c	2026-02-23 18:29:00.005021560 +0100
+@@ -57,7 +57,7 @@ int AllocAndReadGptData(VbExDiskHandle_t
+ 	if (0 == CheckHeader(primary_header, 0,
+ 			gptdata->streaming_drive_sectors,
+ 			gptdata->gpt_drive_sectors,
+-			gptdata->flags)) {
++			gptdata->flags, gptdata->sector_bytes)) {
+ 		primary_valid = 1;
+ 		uint64_t entries_bytes =
+ 				(uint64_t)primary_header->number_of_entries
+@@ -91,7 +91,7 @@ int AllocAndReadGptData(VbExDiskHandle_t
+ 	if (0 == CheckHeader(secondary_header, 1,
+ 			gptdata->streaming_drive_sectors,
+ 			gptdata->gpt_drive_sectors,
+-			gptdata->flags)) {
++			gptdata->flags, gptdata->sector_bytes)) {
+ 		secondary_valid = 1;
+ 		uint64_t entries_bytes =
+ 				(uint64_t)secondary_header->number_of_entries
+diff -uprN vboot_reference/firmware/stub/tpm_lite_stub.c vboot_reference-rsp/firmware/stub/tpm_lite_stub.c
+--- vboot_reference/firmware/stub/tpm_lite_stub.c	2018-09-05 20:01:43.000000000 +0200
++++ vboot_reference-rsp/firmware/stub/tpm_lite_stub.c	2026-02-23 18:13:55.395790275 +0100
+@@ -27,7 +27,7 @@
+ #include <sys/stat.h>
+ #include <time.h>
+ #include <unistd.h>
+-
++#include <assert.h>
+ 
+ #define TPM_DEVICE_PATH "/dev/tpm0"
+ /* Retry failed open()s for 5 seconds in 10ms polling intervals. */
