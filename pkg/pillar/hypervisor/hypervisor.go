@@ -51,7 +51,7 @@ type hypervisorDesc struct {
 
 var knownHypervisors = map[string]hypervisorDesc{
 	XenHypervisorName:        {constructor: newXen, enabled: func() bool { return fileutils.FileExists(nil, "/proc/xen") }, hvTypeFileContent: "xen"},
-	KVMHypervisorName:        {constructor: newKvm, enabled: func() bool { return fileutils.FileExists(nil, "/dev/kvm") && !base.IsHVTypeKube() }, hvTypeFileContent: "kvm"},
+	KVMHypervisorName:        {constructor: newKvm, enabled: func() bool { return true }, hvTypeFileContent: "kvm"},
 	KubevirtHypervisorName:   {constructor: newKubevirt, enabled: func() bool { return fileutils.FileExists(nil, "/dev/kvm") && base.IsHVTypeKube() }, hvTypeFileContent: "k"},
 	ACRNHypervisorName:       {constructor: newAcrn, enabled: func() bool { return fileutils.FileExists(nil, "/dev/acrn") }, hvTypeFileContent: "acrn"},
 	ContainerdHypervisorName: {constructor: newContainerd, enabled: func() bool { return fileutils.FileExists(nil, "/run/containerd/containerd.sock") }},

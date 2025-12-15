@@ -38,6 +38,10 @@ elif [ -e /dev/kvm ]; then
    while true ; do sleep 60 ; done
 
 else
-   echo "No hypervisor support detected, feel free to run bare-metal containers"
+   echo "No hypervisor support detected, using full emulation for Virtual Machines"
 
+   # Keep service execution
+   ln -s . /run/run || :
+
+   while true ; do sleep 60 ; done
 fi
