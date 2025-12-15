@@ -34,8 +34,8 @@ zfs_set_default_parameters() {
 }
 
 # Load ZFS and set parameters
-modprobe zfs
-zfs_set_default_parameters
+#modprobe zfs
+#zfs_set_default_parameters
 
 if ! test -f /proc/vmcore; then
     #
