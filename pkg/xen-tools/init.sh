@@ -40,4 +40,8 @@ elif [ -e /dev/kvm ]; then
 else
    echo "No hypervisor support detected, feel free to run bare-metal containers"
 
+   # set things up for R/O FS qemu task execution
+   ln -s . /run/run || :
+
+   while true ; do sleep 60 ; done
 fi
