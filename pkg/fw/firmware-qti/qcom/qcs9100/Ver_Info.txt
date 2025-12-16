@@ -1,0 +1,24 @@
+{
+    "Image_Build_IDs": {
+        "aop": "AOP.HO.3.6.1-00025-LEMANSAU_E-1",
+        "apps": "LE.QCLINUX.1.0.r1-08500-K2C.0-1",
+        "apps_LKP1": "LKP.QCLINUX.1.0.r1-06200-kernel.0-1",
+        "boot": "BOOT.MXF.1.0.c1-00430-KODIAKLA-1",
+        "btfm_hsp": "BTFW.HSP.2.1.2-00065-PATCHZ-1",
+        "btfw_hsp": "BTFW.HSP.2.1.0-00660-USB_UART_PATCHZ-6",
+        "common": "QCS9100.LE.1.0-00291-STD.PROD-1",
+        "cpucp": "CPUCP.FW.1.0-00020-K2C.EXT-1",
+        "dsp": "DSP.AT.1.0.1-00170-LEMANS-1",
+        "glue": "GLUE.QCS9100_LE.1.0-00401-NOOP_TEST-1",
+        "sail": "SAIL.SI.1.2-00077-AU.LEMANS-1",
+        "tz": "TZ.XF.5.29.1-00126.1-KODIAKAAAAANAAZT-1",
+        "tz_apps": "TZ.APPS.1.29-00318-KODIAKAAAAANAZT-1",
+        "wlan_hsp": "WLAN.HSP.1.1-04866-QCAHSPSWPL_V1_V2_SILICONZ_IOE-1"
+    },
+    "Metabuild_Info": {
+        "Meta_Build_ID": "QCS9100.LE.1.0-00291-STD.PROD-1",
+        "Product_Flavor": "['default', 'qcs9100_ridesx', 'qcs9075_ridesx', 'qcs9075-iq-9075-evk', 'sail_nor', 'qcs9075-iq-9075-evk-ifp']",
+        "Time_Stamp": "2025-12-19 00:45:28"
+    },
+    "Version": "1.0"
+}
