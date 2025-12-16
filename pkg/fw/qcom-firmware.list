@@ -1,0 +1,95 @@
+# Copyright (c) 2026 Zededa, Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Firmware for Qualcomm IQ-8275 EVK (qcs8300) and IQ-9075 EVK (qcs9100/sa8775p)
+# taken from linux-firmware, i.e. the same files the Qualcomm Linux BSP
+# (QLI 2.1, meta-qcom) installs on these boards. Each block is one linux-firmware
+# package from packagegroup-iq-8275-evk-firmware / packagegroup-iq-9075-evk-firmware
+# and packagegroup-qcom-m2-firmware (both boards have an M.2 connector)
+# (meta-qcom/recipes-bsp/packagegroups), with the patterns of its FILES variable
+# in meta-lts-mixins/recipes-kernel/linux-firmware/linux-firmware_<version>.bb.
+#
+# Paths are relative to /lib/firmware and expanded as shell globs. Every
+# pattern must match at least one file.
+
+# linux-firmware-qcom-adreno-a623, -a650, -qcs8300-adreno (IQ8 GPU)
+qcom/a623*.*
+qcom/a650*.*
+qcom/qcs8300/a623_zap.mbn*
+# linux-firmware-qcom-adreno-a660, -a663, -sa8775p-adreno (IQ9 GPU)
+qcom/a660*.*
+qcom/a663*.*
+qcom/sa8775p/a663_zap.mbn*
+
+# linux-firmware-ath11k-qca6698aq, -ath11k-wcn6855, -ath12k-wcn7850 (WiFi)
+ath11k/QCA6698AQ
+ath11k/WCN6855
+ath12k/WCN7850
+# linux-firmware-ath12k-qcn9274, -ath12k-qcc2072 (M.2 WiFi cards)
+ath12k/QCN9274
+ath12k/QCC2072
+
+# linux-firmware-qca-qca2066 (Bluetooth)
+qca/hpbtfw21.tlv*
+qca/hpnv21.bin*
+qca/hpnv21g.bin*
+qca/hpnv21.30[129a]*
+qca/hpnv21g.30[129ac]*
+qca/hpnv21.b8c*
+qca/hpnv21.b9f*
+qca/hpnv21.ba[01234a]*
+qca/hpnv21.bb8*
+qca/hpnv21.b10c*
+qca/hpnv21.b111*
+qca/hpnv21g.b8c*
+qca/hpnv21g.b9f*
+qca/hpnv21g.ba[01234a]*
+qca/hpnv21g.bb8*
+qca/hpnv21g.b10c*
+qca/hpnv21g.b111*
+# linux-firmware-qca-qca61x4-usb (Bluetooth)
+qca/nvm_usb_*.bin*
+qca/rampatch_usb_*.bin*
+qca/QCA2066/nvm_usb_00130201_030a.bin*
+qca/QCA2066/nvm_usb_00130201_gf_030a.bin*
+qca/QCA2066/rampatch_usb_00130201.bin*
+# linux-firmware-qca-wcn685x (Bluetooth)
+qca/wcnhpbtfw10.tlv*
+qca/wcnhpbtfw21.tlv*
+qca/wcnhpnv10.b*
+qca/wcnhpnv21.b*
+qca/wcnhpnv21g.b*
+# linux-firmware-qca-wcn7850 (Bluetooth)
+qca/hmtbtfw20.tlv*
+qca/hmtnv20.b10f*
+qca/hmtnv20.b112*
+qca/hmtnv20.b20[12]*
+qca/hmtnv20.bin*
+# linux-firmware-qca-qcc2072 (Bluetooth, IQ9)
+qca/ornbcscal1[01].bin*
+qca/ornbtfw1[01].tlv*
+qca/ornnv1[01].bin*
+
+# linux-firmware-lt8713sx (Lontium DisplayPort bridge, IQ8)
+lt8713sx_fw.bin*
+Lontium/lt8713sx_fw.bin*
+
+# linux-firmware-qcom-qcs8300-audio, -compute, -generalpurpose, -qupv3fw (IQ8)
+qcom/qcs8300/adsp*.*
+qcom/qcs8300/arduino-monza-tplg.bin*
+qcom/qcs8300/MONACO-EVK-tplg.bin*
+qcom/qcs8300/cdsp*.*
+qcom/qcs8300/gpdsp*.*
+qcom/qcs8300/qupv3fw.elf*
+# linux-firmware-qcom-sa8775p-audio, -compute, -generalpurpose, -qupv3fw (IQ9)
+qcom/sa8775p/adsp*.*
+qcom/sa8775p/LEMANS-EVK-tplg.bin*
+qcom/qcs9100/LEMANS-EVK-tplg.bin*
+qcom/sa8775p/cdsp*.*
+qcom/sa8775p/gpdsp*.*
+qcom/sa8775p/qupv3fw.elf*
+
+# linux-firmware-qcom-vpu (video)
+qcom/vpu/*
+qcom/vpu-1.0/*
+qcom/vpu-2.0/*
