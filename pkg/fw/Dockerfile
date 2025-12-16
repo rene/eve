@@ -62,6 +62,8 @@ RUN mkdir /linux-firmware &&\
     tar -xz --strip-components=1 -C /linux-firmware -f /linux-firmware.tar.gz &&\
     make -C /linux-firmware FIRMWAREDIR="/lib/firmware" install
 
+COPY firmware-qti /firmware-qti
+
 # add compat links for pre-5.0 kernel
 RUN ln -s brcmfmac43455-sdio.raspberrypi,3-model-b-plus.txt /lib/firmware/brcm/brcmfmac43455-sdio.txt &&\
     ln -s brcmfmac43430-sdio.raspberrypi,3-model-b.txt /lib/firmware/brcm/brcmfmac43430-sdio.txt
@@ -183,6 +185,8 @@ COPY --from=build /rtw88/*.bin /lib/firmware/rtw88/
 # Intel ICE firmware.
 COPY --from=build /lib/firmware/intel/ice /lib/firmware/intel/ice
 COPY --from=build /lib/firmware/hailo /lib/firmware/hailo
+# Qualcomm's SLE4 Firmware
+COPY --from=build /firmware-qti/* /lib/firmware/
 
 ARG TARGETARCH
 
