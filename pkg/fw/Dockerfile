@@ -47,6 +47,9 @@ FROM build-base AS nvidia-gb
 ENV NVIDIA_FW_TEGRA=${GB_DEB}
 ENV NVIDIA_FW_URL=${GB_URL}
 
+# Qualcomm IQ uses the generic firmware set, plus the qcom-firmware stage below
+FROM generic AS qcom-iq
+
 FROM ${PLATFORM} AS build
 
 ADD ${NVIDIA_FW_URL} /${NVIDIA_FW_TEGRA}
@@ -149,6 +152,73 @@ RUN mkdir -p /fw-listed && \
             cp -a --parents "$f" /fw-listed/ || exit 1; \
         done < "$list"; \
     fi
+
+# Qualcomm IQ-8275 EVK / IQ-9075 EVK (PLATFORM=qcom-iq) firmware, the same
+# files as the Qualcomm Linux BSP (QLI 2.1, meta-qcom) installs on these boards:
+#   - linux-firmware 20260910 (meta-lts-mixins linux-firmware recipe), files
+#     selected in qcom-firmware.list
+#   - camera firmware (meta-qcom camxfirmware-lemans/-monaco)
+#   - QPS615 (TC9564) PCIe switch firmware (meta-qcom qps615-firmware)
+# This stage is only used by compactor-qcom-iq, other platforms don't build it.
+FROM build-base AS qcom-firmware
+ENV BUILD_PKGS="tar xz coreutils"
+RUN eve-alpine-deploy.sh
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+
+ENV QCOM_LINUX_FIRMWARE_VERSION=20260910
+ENV QCOM_LINUX_FIRMWARE_SHA256=f3937ca282ba256242e2b6dbe523df8a80007d29ffd61f56d270190865492ea8
+ADD https://cdn.kernel.org/pub/linux/kernel/firmware/linux-firmware-${QCOM_LINUX_FIRMWARE_VERSION}.tar.xz /linux-firmware.tar.xz
+
+ENV CAMX_FW_VERSION=1.0.7
+ENV CAMX_FW_BUILD=260209.1
+ENV CAMX_FW_SHA256=62dd76046c1ae0e34f843285524be02e9fe96093ff68096cb998e9844f729f9d
+ENV CAMX_FW_URL=https://qartifactory-edge.qualcomm.com/artifactory/qsc_releases/software/chip/component/camx.qclinux.0.0
+ADD ${CAMX_FW_URL}/${CAMX_FW_BUILD}/prebuilt_yocto/camxfirmware-lemans_${CAMX_FW_VERSION}_armv8-2a.tar.gz /camxfirmware.tar.gz
+
+ENV TC956X_FW_VERSION=V6.0.0
+ENV TC956X_FW_REV=f9b0e1bc0f7c3dfc74ad1a46a87efa56885b9288
+ADD https://github.com/TC956X/TC9564_Firmware.git#${TC956X_FW_REV} /tc956x
+
+COPY qcom-firmware.list /qcom-firmware.list
+WORKDIR /
+RUN echo "${QCOM_LINUX_FIRMWARE_SHA256}  /linux-firmware.tar.xz" | sha256sum -c && \
+    echo "${CAMX_FW_SHA256}  /camxfirmware.tar.gz" | sha256sum -c
+
+# Install linux-firmware (creates the WHENCE symlinks too) and pick the files
+RUN mkdir /linux-firmware /linux-firmware-install /qcom-firmware && \
+    tar -xJ --strip-components=1 -C /linux-firmware -f /linux-firmware.tar.xz && \
+    (cd /linux-firmware && ./copy-firmware.sh /linux-firmware-install > /dev/null) && \
+    cd /linux-firmware-install && \
+    grep -vE '^\s*(#|$)' /qcom-firmware.list | while read -r pattern; do \
+        found=0 ; \
+        for f in $pattern; do \
+            if [ -e "$f" ] || [ -L "$f" ]; then \
+                cp -a --parents "$f" /qcom-firmware/ ; found=1 ; \
+            fi ; \
+        done ; \
+        [ "$found" = 1 ] || { echo "qcom-firmware.list: no match for $pattern" >&2; exit 1; } ; \
+    done && \
+    for l in LICENCE.linaro LICENSE.Lontium LICENSE.qcom LICENSE.qcom-2 LICENSE.QualcommAtheros_ath10k; do \
+        cp "/linux-firmware/LICENSES/$l" /qcom-firmware/ ; \
+    done && \
+    cd / && rm -rf /linux-firmware /linux-firmware-install
+
+# Camera firmware: qcom/sa8775p/CAMERA_ICP.mbn + qcom/qcs8300 symlink to it
+RUN mkdir /camx && tar -xz -C /camx -f /camxfirmware.tar.gz && \
+    cp -a /camx/usr/lib/firmware/qcom/. /qcom-firmware/qcom/
+
+# QPS615 PCIe switch firmware
+RUN cp /tc956x/Bin/TC956X_Firmware_PCIeBridge.bin /qcom-firmware/ && \
+    cp /tc956x/Bin/LICENSE /qcom-firmware/LICENSE.TC956X
+
+# No dangling symlinks (e.g. a WHENCE link whose target wasn't selected)
+RUN dangling=$(find -L /qcom-firmware -type l) && \
+    { [ -z "$dangling" ] || { echo "dangling symlinks: $dangling" >&2; exit 1; }; } && \
+    find /qcom-firmware -type f | wc -l && du -sh /qcom-firmware
+
+RUN register-sbom-pkg.sh -n linux-firmware-qcom -v "${QCOM_LINUX_FIRMWARE_VERSION}" -l proprietary -u https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git -o /sbom-out && \
+    register-sbom-pkg.sh -n camxfirmware-lemans -v "${CAMX_FW_VERSION}" -l proprietary -u "${CAMX_FW_URL}" -o /sbom-out && \
+    register-sbom-pkg.sh -n tc956x-firmware -v "${TC956X_FW_VERSION}" -l MIT -u https://github.com/TC956X/TC9564_Firmware -o /sbom-out
 
 # generate initrd for Intel's and AMD's microcode
 # it makes sense only for x86_64 platform
@@ -285,7 +355,6 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     echo "Freed space: ${freed_space} KB"; \
     fi
 
-
 FROM compactor-listed AS compactor-generic-amd64
 FROM compactor-common AS compactor-generic-arm64
 FROM compactor-common AS compactor-generic-riscv64
@@ -297,6 +366,11 @@ FROM compactor-common AS compactor-nvidia-gb
 COPY --from=build /lib/firmware/nvidia/ /lib/firmware/nvidia/
 # HP ZGX related firmwares
 COPY --from=build /lib/firmware/mediatek/mt7925 /lib/firmware/mediatek/mt7925
+
+FROM compactor-common AS compactor-qcom-iq
+COPY --from=qcom-firmware /qcom-firmware/ /lib/firmware/
+COPY --from=qcom-firmware /sbom-out/lib/apk/db/installed /tmp/sbom-qcom
+RUN cat /tmp/sbom-qcom >> /lib/apk/db/installed && rm -f /tmp/sbom-qcom
 
 FROM compactor-${PLATFORM} AS compactor
 
