@@ -232,10 +232,15 @@ func GetPartitionState(partName string) string {
 
 	validatePartitionLabel(partName)
 	ret, err := execWithRetry(nil, "zboot", "partstate", partName)
+	partState := "unused"
 	if err != nil {
-		logrus.Fatalf("zboot partstate %s: err %v\n", partName, err)
+		//logrus.Fatalf("zboot partstate %s: err %v\n", partName, err)
+		logrus.Errorf("zboot partstate %s: err %v\n", partName, err)
+		if partName == "IMGA" {
+			partState = "active"
+		}
 	}
-	partState := string(ret)
+	partState = string(ret)
 	partState = strings.TrimSpace(partState)
 	return partState
 }
