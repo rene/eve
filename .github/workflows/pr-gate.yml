@@ -6,7 +6,7 @@ name: PR Gate
 on:  # yamllint disable-line rule:truthy
   workflow_run:
     workflows: ["PR build"]
-    types: [completed]
+    types: [in_progress]
 
   pull_request_review:
     types: [submitted]
