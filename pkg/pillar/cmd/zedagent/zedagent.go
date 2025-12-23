@@ -2827,6 +2827,7 @@ func getDeferredSentHandlerFunction(ctx *zedagentContext) controllerconn.SentHan
 						publishZedAgentStatus(ctx.getconfigCtx)
 					}
 				}
+				// some fake change to trigger PR build workflow
 				if !ctx.publishedEdgeNodeCerts {
 					// Attestation request does not clog the send queue (issued
 					// with the `ignoreErr` set to true), but once fails has to
