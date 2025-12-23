@@ -2840,6 +2840,7 @@ func getDeferredSentHandlerFunction(ctx *zedagentContext) controllerconn.SentHan
 	}
 }
 
+// some comment
 func getDeferredPriorityFunctions() []controllerconn.TypePriorityCheckFunction {
 	var functions []controllerconn.TypePriorityCheckFunction
 	functions = append(functions, func(itemType interface{}) bool {
