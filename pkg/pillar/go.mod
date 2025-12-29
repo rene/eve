@@ -41,12 +41,12 @@ require (
 	github.com/linuxkit/linuxkit/src/cmd/linuxkit v0.0.0-20240507172735-6d37353ca1ee
 	github.com/longhorn/longhorn-manager v1.6.0
 	github.com/miekg/dns v1.1.43
-	github.com/moby/sys/mountinfo v0.7.1
+	github.com/moby/sys/mountinfo v0.7.2
 	github.com/multiplay/go-edac v1.0.1
 	github.com/onsi/gomega v1.29.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.0
-	github.com/opencontainers/runtime-spec v1.1.0
+	github.com/opencontainers/runtime-spec v1.3.0
 	github.com/packetcap/go-pcap v0.0.0-20230717110547-c34843f9206d
 	github.com/prometheus/procfs v0.12.0
 	github.com/satori/go.uuid v1.2.1-0.20180404165556-75cca531ea76
@@ -72,7 +72,7 @@ require (
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	kubevirt.io/api v1.1.1
 	kubevirt.io/client-go v1.2.0
-	tags.cncf.io/container-device-interface v0.8.1
+	tags.cncf.io/container-device-interface v1.1.0
 )
 
 require (
@@ -253,9 +253,10 @@ require (
 	github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de // indirect
 	github.com/mitchellh/go-wordwrap v1.0.0 // indirect
 	github.com/moby/spdystream v0.2.0 // indirect
+	github.com/moby/sys/capability v0.4.0 // indirect
 	github.com/moby/sys/userns v0.1.0 // indirect
 	github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00 // indirect
-	github.com/opencontainers/runtime-tools v0.9.1-0.20221107090550-2e043c6bd626 // indirect
+	github.com/opencontainers/runtime-tools v0.9.1-0.20251114084447-edf4cb3d2116 // indirect
 	github.com/openshift/api v0.0.0-20230503133300-8bbcb7ca7183 // indirect
 	github.com/openshift/client-go v0.0.0-20210112165513-ebc401615f47 // indirect
 	github.com/openshift/custom-resource-status v1.1.2 // indirect
@@ -286,8 +287,8 @@ require (
 	sigs.k8s.io/kustomize/api v0.12.1 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.13.9 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
-	sigs.k8s.io/yaml v1.3.0 // indirect
-	tags.cncf.io/container-device-interface/specs-go v0.8.0 // indirect
+	sigs.k8s.io/yaml v1.4.0 // indirect
+	tags.cncf.io/container-device-interface/specs-go v1.1.0 // indirect
 )
 
 replace (
