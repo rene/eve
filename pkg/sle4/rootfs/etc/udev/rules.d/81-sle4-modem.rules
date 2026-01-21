@@ -1,0 +1,27 @@
+# SLE4 modem is available under /dev/smd11
+SUBSYSTEM=="glinkpkt", KERNEL=="smd11", \
+  ENV{ID_MM_PHYSDEV_UID}="qcom-soc", \
+  ENV{ID_MM_DEVICE_PROCESS}="1", \
+  ENV{ID_MM_CANDIDATE}="1", \
+  ENV{ID_MM_PORT_TYPE_AT_PRIMARY}="1"
+
+# QMI Control Port (QRTR)
+SUBSYSTEM=="rpmsg", KERNEL=="*IPCRTR*", \
+  ENV{ID_MM_PHYSDEV_UID}="qcom-soc", \
+  ENV{ID_MM_CANDIDATE}="1", \
+  ENV{ID_MM_DEVICE_PROCESS}="1", \
+  ENV{ID_MM_PORT_TYPE_QMI}="1"
+
+# Data Ports (RMNET)
+SUBSYSTEM=="net", KERNEL=="rmnet*", \
+  ENV{ID_MM_PHYSDEV_UID}="qcom-soc", \
+  ENV{ID_MM_DEVICE_PROCESS}="1", \
+  ENV{ID_MM_CANDIDATE}="1", \
+  ENV{ID_MM_CAPABILITY_WWAN_NET}="1"
+
+# Forces qrtr0 into qcom-soc
+SUBSYSTEM=="qrtr", KERNEL=="*qrtr*", \
+  ENV{ID_MM_PHYSDEV_UID}="qcom-soc", \
+  ENV{ID_MM_DEVICE_PROCESS}="1", \
+  ENV{ID_MM_PORT_TYPE_QMI}="1", \
+  ENV{ID_MM_CANDIDATE}="1"

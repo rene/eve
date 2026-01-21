@@ -1,0 +1,191 @@
+#!/bin/sh
+
+# First, mount firmware partitions
+BT_A=$(blkid | grep bluetooth_a | cut -d":" -f1)
+DSP_A=$(blkid | grep dsp_a | cut -d":" -f1)
+MODEM_A=$(blkid | grep modem_a | cut -d":" -f1)
+
+if [ -z "$MODEM_A" ]; then
+	echo "Modem firmware partition not found!"
+	echo
+	exit 1
+fi
+
+if [ -z "$BT_A" ]; then
+	echo "Bluetooth firmware partition not found!"
+	echo
+	exit 1
+fi
+
+if [ -z "$DSP_A" ]; then
+	echo "DSP firmware partition not found!"
+	echo
+	exit 1
+fi
+
+echo "Mounting bluetooth firmware partition"
+mount -o noexec,nodev,ro -t vfat "$BT_A" /bt_firmware
+
+echo "Mounting DSP firmware partition"
+mount -o noatime,data=ordered,noauto_da_alloc,discard,ro,noexec,nodev,nosuid -t ext4 "$DSP_A" /dsp
+
+echo "Mounting modem firmware partition"
+mount -o noexec,nodev,ro -t vfat "$MODEM_A" /firmware
+
+# Prepare zram device
+factor=${SWAP_MEMTOTAL_PCT:-50}
+
+memtotal=$(grep "^MemTotal:" /proc/meminfo | sed -n 's/[^0-9]*//gp')
+mem_for_disksize=$(($memtotal*$factor/100*1024))
+
+echo 1 > /sys/block/zram0/reset
+echo $mem_for_disksize > /sys/block/zram0/disksize
+mkswap /dev/zram0
+# disable swap for eve-k
+#swapon -p 10 /dev/zram0
+
+# Start pd-mapper daemon
+/usr/bin/pdmappersvc &
+
+# Load some blacklisted modules
+MODULES="glink_pkt glink_probe qrtr-smd qcom_q6v5_pas qcom_pil_info qcom_q6v5 qcom_sysmon pci_msm_drv slim_qcom_ngd_ctrl rproc_qcom_common qcom_smd cdsp_loader"
+
+for m in $MODULES; do
+    modprobe $m
+    sleep 1
+done
+
+# Load the rest of the modules
+for m in `cat /etc/modules-load.d/sle4.conf`; do
+    modprobe $m
+done
+
+# Create file devices
+mkdir -p /dev/block/bootdevice/by-name
+ln -s /dev/sde1 /dev/block/bootdevice/by-name/abl_a
+ln -s /dev/sde2 /dev/block/bootdevice/by-name/abl_b
+ln -s /dev/sdg22 /dev/block/bootdevice/by-name/apdp
+ln -s /dev/sdf8 /dev/block/bootdevice/by-name/bluetooth_a
+ln -s /dev/sdf9 /dev/block/bootdevice/by-name/bluetooth_b
+ln -s /dev/sdg26 /dev/block/bootdevice/by-name/boot_a
+ln -s /dev/sdg27 /dev/block/bootdevice/by-name/boot_b
+ln -s /dev/sdg10 /dev/block/bootdevice/by-name/catecontentfv
+ln -s /dev/sdg11 /dev/block/bootdevice/by-name/catefv
+ln -s /dev/sdg12 /dev/block/bootdevice/by-name/cateloader
+ln -s /dev/sdd2 /dev/block/bootdevice/by-name/cdt
+ln -s /dev/sdf12 /dev/block/bootdevice/by-name/cmnlib64_a
+ln -s /dev/sdf13 /dev/block/bootdevice/by-name/cmnlib64_b
+ln -s /dev/sdf10 /dev/block/bootdevice/by-name/cmnlib_a
+ln -s /dev/sdf11 /dev/block/bootdevice/by-name/cmnlib_b
+ln -s /dev/sdd3 /dev/block/bootdevice/by-name/ddr
+ln -s /dev/sdf14 /dev/block/bootdevice/by-name/devcfg_a
+ln -s /dev/sdf15 /dev/block/bootdevice/by-name/devcfg_b
+ln -s /dev/sdg13 /dev/block/bootdevice/by-name/devinfo
+ln -s /dev/sdg14 /dev/block/bootdevice/by-name/dip
+ln -s /dev/sdg6 /dev/block/bootdevice/by-name/dsp_a
+ln -s /dev/sdg9 /dev/block/bootdevice/by-name/dsp_b
+ln -s /dev/sdg28 /dev/block/bootdevice/by-name/dtbo_a
+ln -s /dev/sdg29 /dev/block/bootdevice/by-name/dtbo_b
+ln -s /dev/sda5 /dev/block/bootdevice/by-name/frp
+ln -s /dev/sdf1 /dev/block/bootdevice/by-name/fsc
+ln -s /dev/sdf2 /dev/block/bootdevice/by-name/fsg
+ln -s /dev/sdf16 /dev/block/bootdevice/by-name/hyp_a
+ln -s /dev/sdf17 /dev/block/bootdevice/by-name/hyp_b
+ln -s /dev/sdg30 /dev/block/bootdevice/by-name/imagefv_a
+ln -s /dev/sdg31 /dev/block/bootdevice/by-name/imagefv_b
+ln -s /dev/sdf18 /dev/block/bootdevice/by-name/keymaster_a
+ln -s /dev/sdf19 /dev/block/bootdevice/by-name/keymaster_b
+ln -s /dev/sda6 /dev/block/bootdevice/by-name/keystore
+ln -s /dev/sdg15 /dev/block/bootdevice/by-name/limits
+ln -s /dev/sdg16 /dev/block/bootdevice/by-name/logdump
+ln -s /dev/sdg23 /dev/block/bootdevice/by-name/logfs
+ln -s /dev/sdg5 /dev/block/bootdevice/by-name/mdtp_a
+ln -s /dev/sdg8 /dev/block/bootdevice/by-name/mdtp_b
+ln -s /dev/sdg4 /dev/block/bootdevice/by-name/mdtpsecapp_a
+ln -s /dev/sdg7 /dev/block/bootdevice/by-name/mdtpsecapp_b
+ln -s /dev/sda9 /dev/block/bootdevice/by-name/misc
+ln -s /dev/sdg2 /dev/block/bootdevice/by-name/modem_a
+ln -s /dev/sdg3 /dev/block/bootdevice/by-name/modem_b
+ln -s /dev/sdf3 /dev/block/bootdevice/by-name/modemst1
+ln -s /dev/sdf4 /dev/block/bootdevice/by-name/modemst2
+ln -s /dev/sdg17 /dev/block/bootdevice/by-name/multiimgoem
+ln -s /dev/sdg18 /dev/block/bootdevice/by-name/multiimgqti
+ln -s /dev/sdf5 /dev/block/bootdevice/by-name/nvdata1
+ln -s /dev/sdf6 /dev/block/bootdevice/by-name/nvdata2
+ln -s /dev/sdf7 /dev/block/bootdevice/by-name/persist
+ln -s /dev/sda3 /dev/block/bootdevice/by-name/qpdata1
+ln -s /dev/sda4 /dev/block/bootdevice/by-name/qpdata2
+ln -s /dev/sdf20 /dev/block/bootdevice/by-name/qupfw_a
+ln -s /dev/sdf21 /dev/block/bootdevice/by-name/qupfw_b
+ln -s /dev/sda8 /dev/block/bootdevice/by-name/rawdump
+ln -s /dev/sda2 /dev/block/bootdevice/by-name/reserve2
+ln -s /dev/sdf22 /dev/block/bootdevice/by-name/rpm_a
+ln -s /dev/sdf23 /dev/block/bootdevice/by-name/rpm_b
+ln -s /dev/sdg19 /dev/block/bootdevice/by-name/secdata
+ln -s /dev/sdg32 /dev/block/bootdevice/by-name/splash
+ln -s /dev/sdg20 /dev/block/bootdevice/by-name/spunvm
+ln -s /dev/sda7 /dev/block/bootdevice/by-name/ssd
+ln -s /dev/sdg24 /dev/block/bootdevice/by-name/storsec
+ln -s /dev/sda12 /dev/block/bootdevice/by-name/systemrw
+ln -s /dev/sdg25 /dev/block/bootdevice/by-name/toolsfv
+ln -s /dev/sdf24 /dev/block/bootdevice/by-name/tz_a
+ln -s /dev/sdf25 /dev/block/bootdevice/by-name/tz_b
+ln -s /dev/sdf26 /dev/block/bootdevice/by-name/uefisecapp_a
+ln -s /dev/sdf27 /dev/block/bootdevice/by-name/uefisecapp_b
+ln -s /dev/sdg21 /dev/block/bootdevice/by-name/uefivarstore
+ln -s /dev/sdb1 /dev/block/bootdevice/by-name/xbl_a
+ln -s /dev/sdc1 /dev/block/bootdevice/by-name/xbl_b
+ln -s /dev/sdb2 /dev/block/bootdevice/by-name/xbl_config_a
+ln -s /dev/sdc2 /dev/block/bootdevice/by-name/xbl_config_b
+
+# socket and tmp directories
+mkdir -p /dev/socket/data/ipa /dev/socket/data/www /tmp/data
+
+# Setup binderfs
+mkdir -p /dev/binderfs
+mount -t binder binder /dev/binderfs
+ln -sf /dev/binderfs/binder /dev/binder
+ln -sf /dev/binderfs/hwbinder /dev/hwbinder
+ln -sf /dev/binderfs/vndbinder /dev/vndbinder
+
+# Start rmt_storage daemon
+/sbin/rmt_storage &
+
+# Start qtr-ns
+/usr/bin/qrtr-ns &
+
+# Start tftp server
+/usr/bin/tftp_server -p 69 &
+
+# Data-init
+echo 1 > /proc/sys/net/netfilter/nf_conntrack_tcp_be_liberal
+echo 0 > /proc/sys/net/netfilter/nf_conntrack_checksum
+
+# Load rmnet/ipa modules
+modprobe -a ipa_fmwk ipam ipanetm ipa_clientsm rmnet
+
+# Load WWAN modules
+modprobe -a qcserial usb_wwan qmi_wwan cdc_wdm cdc_mbim cdc_acm \
+            wwan mhi mhi_pci_generic mhi_wwan_ctrl mhi_wwan_mbim
+
+# Load WLAN modules
+modprobe -a wlan_firmware_service wlan
+
+# ipacm-diag
+# TODO: start ipacm-diag
+
+# ipa-fws service
+echo 1 > /dev/ipa
+
+# ipacm
+# TODO: start ipacm
+
+# Now we are ready to start the modem
+sleep 1
+echo start > /sys/class/remoteproc/remoteproc0/state
+
+# cnss_daemon
+/usr/sbin/cnss_daemon -s
+
+# Trigger udev again after load everything
+udevadm trigger

@@ -153,6 +153,7 @@ RECOVERTPM_TAG=${RECOVERTPM_TAG}
 UDEV_TAG=${UDEV_TAG}
 INSTALLER_TAG=${INSTALLER_TAG}
 MONITOR_TAG=${MONITOR_TAG}
+SLE4_TAG=${SLE4_TAG}
 EOF
 }
 
@@ -200,6 +201,7 @@ RECOVERTPM_TAG=$(linuxkit_tag pkg/recovertpm)
 UDEV_TAG=$(linuxkit_tag pkg/udev)
 INSTALLER_TAG=$(linuxkit_tag pkg/installer)
 MONITOR_TAG=$(linuxkit_tag pkg/monitor)
+SLE4_TAG=$(linuxkit_tag pkg/sle4)
 
 # Synthetic tags: the following tags are based on hashing
 # the contents of all the Dockerfile.in that we can find.
