@@ -1,0 +1,58 @@
+#!/bin/sh
+
+# First, mount firmware partitions
+BT_A=$(blkid | grep bluetooth_a | cut -d":" -f1)
+DSP_A=$(blkid | grep dsp_a | cut -d":" -f1)
+MODEM_A=$(blkid | grep modem_a | cut -d":" -f1)
+
+if [ -z "$MODEM_A" ]; then
+	echo "Modem firmware partition not found!"
+	echo
+	exit 1
+fi
+
+if [ -z "$BT_A" ]; then
+	echo "Bluetooth firmware partition not found!"
+	echo
+	exit 1
+fi
+
+if [ -z "$DSP_A" ]; then
+	echo "DSP firmware partition not found!"
+	echo
+	exit 1
+fi
+
+echo "Mounting bluetooth firmware partition"
+mount -o ro "$BT_A" /bt_firmware
+
+echo "Mounting DSP firmware partition"
+mount -o noatime,data=ordered,noauto_da_alloc,discard,ro,noexec,nodev,nosuid -t ext4 "$DSP_A" /dsp
+
+echo "Mounting modem firmware partition"
+mount -o ro "$MODEM_A" /firmware
+
+# Prepare zram device
+factor=${SWAP_MEMTOTAL_PCT:-50}
+
+memtotal=$(grep "^MemTotal:" /proc/meminfo | sed -n 's/[^0-9]*//gp')
+mem_for_disksize=$(($memtotal*$factor/100*1024))
+
+echo 1 > /sys/block/zram0/reset
+echo $mem_for_disksize > /sys/block/zram0/disksize
+mkswap /dev/zram0
+swapon -p 10 /dev/zram0
+
+# Load the modules
+MODULES=$(cat /etc/modprobe.d/blacklist-sle4.conf | sed "/^#.*/d" | awk '{print $2}')
+
+for m in $MODULES; do
+    modprobe $m
+    sleep 1
+done
+
+# Load the rest of the modules
+for m in `cat /etc/modules-load.d/sle4.conf`; do
+    modprobe $m
+done
+
