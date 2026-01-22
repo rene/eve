@@ -124,6 +124,7 @@ fortify-headers
 freetype
 freetype-dev
 fts
+fts-dev
 fuse
 fuse-common
 g++
@@ -155,9 +156,9 @@ gnutls-dev
 gnutls-utils
 gpg
 gpg-agent
-gpg-wks-server
 gpgsm
 gpgv
+gpg-wks-server
 grep
 gtest
 gtest-dev
@@ -187,8 +188,8 @@ ipset
 ipset-openrc
 iptables
 iptables-openrc
-isl-dev
 isl22
+isl-dev
 jpeg
 jpeg-dev
 jq
@@ -218,15 +219,16 @@ libblkid
 libbsd
 libburn
 libbz2
-libc-dev
-libc-utils
 libcap
+libcap-dev
 libcap-ng
 libcap-ng-dev
+libc-dev
 libcom_err
 libcrypto1.1
 libcrypto3
 libcurl
+libc-utils
 libdrm
 libdrm-dev
 libedit
@@ -271,6 +273,7 @@ libmount
 libnfsidmap
 libnftnl
 libnl3
+libnl3-dev
 libpcap
 libpcap-dev
 libpciaccess
@@ -330,6 +333,7 @@ libxi-dev
 libxinerama
 libxinerama-dev
 libxml2
+libxml2-dev
 libxml2-utils
 libxrandr
 libxrandr-dev
@@ -362,8 +366,8 @@ mkinitfs
 mpc1
 mpc1-dev
 mpdecimal
-mpfr-dev
 mpfr4
+mpfr-dev
 mtools
 multipath-tools
 musl
@@ -375,11 +379,11 @@ nasm
 ncurses-dev
 ncurses-libs
 ncurses-terminfo-base
+netcat-openbsd
+netcf-libs
 net-snmp
 net-snmp-agent-libs
 net-snmp-libs
-netcat-openbsd
-netcf-libs
 nettle
 nettle-dev
 nfs-utils
@@ -407,8 +411,8 @@ patch
 pciutils
 pciutils-libs
 pcre
-pcre-dev
 pcre2
+pcre-dev
 pcsc-lite-libs
 perl
 pinentry
