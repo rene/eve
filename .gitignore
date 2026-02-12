@@ -17,7 +17,7 @@ pkg/kernel/build.yml
 pkg/new-kernel/build.yml
 pkg/kernel/certs/*.pem
 conf/authorized_keys
-conf/grub.cfg
+#conf/grub.cfg
 conf/device.cert.pem
 conf/device.key.pem
 conf/soft_serial
