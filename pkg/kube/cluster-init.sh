@@ -195,6 +195,7 @@ setup_prereqs () {
                 sync
         fi
 
+        echo 4-6 > /sys/fs/cgroup/cpuset/eve/services/kube/cpuset.cpus
         modprobe tun
         modprobe vhost_net
         modprobe fuse
@@ -295,6 +296,7 @@ check_start_k3s() {
         k3s_pid=$!
         # Give the embedded etcd in k3s priority over io as its fsync latencies are critical
         ionice -c2 -n0 -p $k3s_pid
+        taskset -cp 4-6 $k3s_pid
         # Default location where clients will look for config
         # There is a very small window where this file is not available
         # while k3s is starting up
@@ -406,6 +408,7 @@ check_start_containerd() {
                 mkdir -p /run/containerd-user
                 nohup /var/lib/rancher/k3s/data/current/bin/containerd --config /etc/containerd/config-k3s.toml >> $CTRD_LOG 2>&1 &
                 containerd_pid=$!
+                taskset -cp 4-6 $containerd_pid
                 logmsg "Started k3s-containerd at pid:$containerd_pid"
         fi
 }
