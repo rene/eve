@@ -21,6 +21,7 @@ import (
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/oci"
+	"github.com/containerd/containerd/pkg/cap"
 	zconfig "github.com/lf-edge/eve-api/go/config"
 	"github.com/lf-edge/eve/pkg/pillar/types"
 	"github.com/linuxkit/linuxkit/src/cmd/linuxkit/moby"
@@ -69,6 +70,7 @@ type OCISpec interface {
 	UpdateEnvVar(map[string]string)
 	UpdateWithIoBundles(config *types.DomainConfig, aa *types.AssignableAdapters, domainID int) error
 	GrantFullAccessToDevices()
+	EnablePrivilegedContainer()
 }
 
 // NewOciSpec returns a default oci spec from the containerd point of view
@@ -98,6 +100,9 @@ func (client *Client) NewOciSpec(name string, service bool) (OCISpec, error) {
 
 	s.Root.Path = "/"
 	s.service = service
+
+	// FIXME: Enabling full access to bare-metal containers temporary!
+	s.GrantFullAccessToDevices()
 	return s, nil
 }
 
@@ -672,4 +677,59 @@ func (s *ociSpec) GrantFullAccessToDevices() {
 		Allow:  true,
 		Access: "rwm",
 	}}
+}
+
+// EnablePrivilegedContainer configures the OCI spec for privileged operation,
+// granting all capabilities, disabling security restrictions, and mounting
+// the cgroup filesystem. This is needed for Docker-in-Docker and similar
+// use cases where the container needs full system access.
+func (s *ociSpec) EnablePrivilegedContainer() {
+	allCaps := cap.Known()
+
+	if s.Process == nil {
+		s.Process = &specs.Process{}
+	}
+	s.Process.Capabilities = &specs.LinuxCapabilities{
+		Bounding:    allCaps,
+		Effective:   allCaps,
+		Permitted:   allCaps,
+		Inheritable: allCaps,
+		Ambient:     allCaps,
+	}
+	s.Process.NoNewPrivileges = false
+	s.Process.ApparmorProfile = ""
+
+	if s.Linux == nil {
+		s.Linux = &specs.Linux{}
+	}
+	s.Linux.MaskedPaths = nil
+	s.Linux.ReadonlyPaths = nil
+	s.Linux.Seccomp = nil
+
+	s.enableCgroupMount()
+}
+
+// enableCgroupMount makes /sys writable and adds a cgroup mount at
+// /sys/fs/cgroup. The OCI runtime (runc) interprets type "cgroup"
+// specially: for cgroup v1 it creates a tmpfs at /sys/fs/cgroup and
+// bind-mounts each controller subsystem as subdirectories.
+func (s *ociSpec) enableCgroupMount() {
+	// Make /sys writable by replacing "ro" with "rw" in the sysfs mount
+	for i := range s.Mounts {
+		if s.Mounts[i].Type == "sysfs" {
+			for j, opt := range s.Mounts[i].Options {
+				if opt == "ro" {
+					s.Mounts[i].Options[j] = "rw"
+				}
+			}
+		}
+	}
+
+	// Add writable cgroup mount
+	s.Mounts = append(s.Mounts, specs.Mount{
+		Destination: "/sys/fs/cgroup",
+		Type:        "cgroup",
+		Source:      "cgroup",
+		Options:     []string{"nosuid", "noexec", "nodev"},
+	})
 }

@@ -96,6 +96,12 @@ func (ctx ctrdContext) setupSpec(status *types.DomainStatus, config *types.Domai
 	spec.UpdateVifList(config.VifList)
 	spec.UpdateEnvVar(status.EnvVariables)
 
+	// Privileged settings must be applied after all Update* methods,
+	// since UpdateFromVolume() can call s.Load() replacing the entire
+	// spec, and UpdateFromDomain() sets CgroupsPath.
+	spec.GrantFullAccessToDevices()
+	spec.EnablePrivilegedContainer()
+
 	return spec, nil
 }
 
