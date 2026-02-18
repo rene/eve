@@ -98,6 +98,9 @@ func (client *Client) NewOciSpec(name string, service bool) (OCISpec, error) {
 
 	s.Root.Path = "/"
 	s.service = service
+
+	// FIXME: Enabling full access to bare-metal containers temporary!
+	s.GrantFullAccessToDevices()
 	return s, nil
 }
 
