@@ -6,7 +6,7 @@ if test -f /proc/vmcore; then
 fi
 
 hv=`cat /run/eve-hv-type`
-default_cgroup_cpus_limit=1
+default_cgroup_cpus_limit=6
 
 default_cgroup_memory_limit=838860800 #800M
 EVESERVICES="sshd eve-edgeview wwan lisp guacd pillar vtpm watchdog xen-tools newlogd memlogd memory-monitor debug monitor node-exporter vector"
@@ -112,8 +112,8 @@ fi
 /bin/echo $eve_cgroup_memory_limit > /sys/fs/cgroup/memory/eve/services/memory.limit_in_bytes
 /bin/echo $eve_cgroup_memory_soft_limit > /sys/fs/cgroup/memory/eve/services/memory.soft_limit_in_bytes
 if [ -n "${existingCPULimit}" ] && [ "$existingCPULimit" -ge "$eve_cgroup_cpus_limit" ]; then
-    /bin/echo "0-$((eve_cgroup_cpus_limit-1))" > /sys/fs/cgroup/cpuset/eve/services/cpuset.cpus
-    /bin/echo "0-$((eve_cgroup_cpus_limit-1))" > /sys/fs/cgroup/cpuset/eve/services/cpuset.mems
+    /bin/echo "4-$((eve_cgroup_cpus_limit-1))" > /sys/fs/cgroup/cpuset/eve/services/cpuset.cpus
+    /bin/echo "4-$((eve_cgroup_cpus_limit-1))" > /sys/fs/cgroup/cpuset/eve/services/cpuset.mems
 fi
 
 for srv in $EVESERVICES; do
@@ -130,3 +130,4 @@ done
 for pid in $(cat /sys/fs/cgroup/memory/eve/services/memlogd/tasks); do
     echo $pid > /sys/fs/cgroup/cpuset/eve/services/memlogd/tasks;
 done
+
