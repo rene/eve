@@ -489,6 +489,8 @@ else
         ifeq ($(PLATFORM),evaluation)
             ROOTFS_MAXSIZE_MB=9999
         # nvidia platform requires more space
+        else ifeq (rubik-pi3,$(findstring rubik-pi3,$(PLATFORM)))
+            ROOTFS_MAXSIZE_MB=450
         else ifeq (, $(findstring nvidia,$(PLATFORM)))
             ROOTFS_MAXSIZE_MB=290
         else
