@@ -3,5 +3,6 @@ KERNEL_COMMIT_amd64_v6.12.96_generic = c8fb61a445ae
 KERNEL_COMMIT_arm64_v5.10.192_nvidia-jp5 = 235d695d1dcb
 KERNEL_COMMIT_arm64_v5.15.136_nvidia-jp6 = d9632ab562c2
 KERNEL_COMMIT_arm64_v6.1.155_generic = 951543132206
+KERNEL_COMMIT_arm64_v6.6.116_qcom-iq9 = 923799a97242-rene
 KERNEL_COMMIT_arm64_v6.8.12_nvidia-jp7 = c9653111a08a
 KERNEL_COMMIT_riscv64_v6.1.112_generic = c395b6cac5b3

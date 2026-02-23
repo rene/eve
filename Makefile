@@ -472,7 +472,9 @@ else
         #kube container will not be in non-k builds
         PKGS_$(ZARCH)=$(shell find pkg -maxdepth 1 -type d | grep -Ev "eve|alpine|sources|kube|external-boot-image$$")
         # nvidia platform requires more space
-        ifeq (, $(findstring nvidia,$(PLATFORM)))
+        ifeq (qcom-iq9,$(findstring qcom-iq9,$(PLATFORM)))
+            ROOTFS_MAXSIZE_MB=450
+        else ifeq (, $(findstring nvidia,$(PLATFORM)))
             ROOTFS_MAXSIZE_MB=290
         else
             ROOTFS_MAXSIZE_MB=10240
