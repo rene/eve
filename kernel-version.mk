@@ -21,7 +21,7 @@ KERNEL_COMPILER=gcc
 KERNEL_CONFIG_FLAVOR ?=
 
 PLATFORMS_amd64=generic rt ai-generic
-PLATFORMS_arm64=generic nvidia-jp5 nvidia-jp6 nvidia-jp7 nvidia-gb imx8mp_pollux imx8mp_epc_r3720 imx8mq_evk
+PLATFORMS_arm64=generic nvidia-jp5 nvidia-jp6 nvidia-jp7 nvidia-gb imx8mp_pollux imx8mp_epc_r3720 imx8mq_evk qcom-iq
 PLATFORMS_riscv64=generic
 ARCHS=amd64 arm64 riscv64
 
@@ -53,7 +53,10 @@ ifeq ($(ZARCH), amd64)
         KERNEL_CONFIG_FLAVOR=core
     endif
 else ifeq ($(ZARCH), arm64)
-    ifeq (, $(findstring nvidia,$(PLATFORM)))
+    ifeq (qcom-iq, $(findstring qcom-iq,$(PLATFORM)))
+        KERNEL_FLAVOR=qcom-iq
+        KERNEL_VERSION=v6.18.44
+    else ifeq (, $(findstring nvidia,$(PLATFORM)))
         KERNEL_FLAVOR=generic
         KERNEL_VERSION=v6.1.155
     else
