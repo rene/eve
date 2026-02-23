@@ -509,8 +509,9 @@ ifeq ($(HV),k)
 else
         # kube and witness (built from kube) are not in non-k builds
         PKGS_$(ZARCH)=$(shell find pkg -maxdepth 1 -type d | grep -Ev "eve|alpine|sources|kube|witness$$$(PKGS_PLATFORM_EXCLUDE)")
-        # nvidia platform requires more space
-        ifeq (, $(findstring nvidia,$(PLATFORM)))
+        ifeq (qcom-qli,$(findstring qcom-qli,$(PLATFORM)))
+            ROOTFS_MAXSIZE_MB=1024
+        else ifeq (, $(findstring nvidia,$(PLATFORM)))
             ROOTFS_MAXSIZE_MB=290
         else
             ROOTFS_MAXSIZE_MB=10240
