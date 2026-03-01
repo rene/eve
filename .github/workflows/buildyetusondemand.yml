@@ -34,10 +34,8 @@ jobs:
       IMG_TAG: "0.15.1-eve-1"
     strategy:
       fail-fast: false
-      matrix:
-        arch: [amd64, arm64]
 
-    steps:
+  steps:
       - name: Starting Report
         run: |
           echo Git Ref: "${HEAD_REF}"
@@ -60,7 +58,7 @@ jobs:
           password: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
       - name: Build and push Yetus image
         run: |
-          docker buildx build --platform linux/${{ matrix.arch }} --push --tag ${{ env.IMG_NAME }}:${{ env.IMG_TAG }} tools/yetus
+          docker buildx build --platform linux/amd64,linux/arm64 --push --tag ${{ env.IMG_NAME }}:${{ env.IMG_TAG }} tools/yetus
       - name: Post package report
         run: |
           echo Disk usage
