@@ -30,7 +30,7 @@ jobs:
     env:
       HEAD_REF: ${{ github.event.pull_request.head.ref }}
       REPO_NAME: ${{ github.event.repository.full_name }}
-      IMG_NAME: "lfedge/eve-yetus"
+      IMG_NAME: "renezededa/eve-yetus"
       IMG_TAG: "0.15.1-eve-1"
     strategy:
       fail-fast: false
@@ -53,8 +53,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
       - name: Login to Docker Hub
-        if: ${{ env.REPO_NAME == 'lf-edge/eve' }}
+        if: ${{ env.REPO_NAME == 'rene/eve' }}
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        if: ${{ env.REPO_NAME == 'rene/eve' }}
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef  # v3.6.0
         with:
           username: ${{ secrets.RELEASE_DOCKERHUB_ACCOUNT }}
           password: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
