@@ -284,6 +284,11 @@ if P3=$(findfs PARTLABEL=P3) && [ -n "$P3" ]; then
     # Create directory for trustzone userspace FS
     mkdir -p /persist/coretee
 
+    # Copy any existent fTPM provision data
+    if [ -f "$CONFIGDIR/ftpm.tar.xz" ]; then
+        tar -xf "$CONFIGDIR/ftpm.tar.xz" -C /persist
+    fi
+
     if [ "$INIT_FS" = 1 ]; then
       # store file to indicate that EVE will clean vault
       # in case of no key received from controller
