@@ -6,7 +6,7 @@
 ARG PLATFORM=generic
 
 FROM lfedge/eve-alpine:745ae9066273c73b0fd879c4ba4ff626a8392d04 AS build-base
-ENV BUILD_PKGS="autoconf automake build-base coreutils gettext git glib-dev libtool libmd-dev ncurses-dev tar xz-dev yq zstd-dev"
+ENV BUILD_PKGS="autoconf automake build-base coreutils gettext git glib-dev libtool libmd-dev ncurses-dev tar xz-dev yq zstd-dev bsd-compat-headers cmake util-linux-dev linux-headers pkgconfig"
 
 RUN eve-alpine-deploy.sh
 
@@ -66,14 +66,36 @@ RUN ./autogen && \
 WORKDIR /
 RUN tar -xjf /jetson_linux.tbz2
 
+COPY patches /patches
+
+# Build tee-client
+ENV OPTEE_CLIENT_VERSION=4.9.0
+ADD --keep-git-dir=true https://github.com/OP-TEE/optee_client.git#${OPTEE_CLIENT_VERSION} /optee_client
+
+WORKDIR /optee_client
+
+# Apply patches
+RUN git config --global user.name 'Project EVE' && \
+    git config --global user.email 'builder@projecteve.dev' && \
+    for x in /patches/optee_client/*.patch; do \
+      git am $x; \
+    done
+
+# Build tee-supplicant
+RUN cmake -DCMAKE_INSTALL_PREFIX=/optee-client/usr && \
+      make -j "$(getconf _NPROCESSORS_ONLN)" && \
+      make install
+
+# Init script for tee-supplicant
+COPY 011-tee-supplicant /011-tee-supplicant
+
 # Build nvidia-ctk
 ENV NVIDIA_CONTAINER_TOOLKIT_REV=v1.16.2
 ADD --keep-git-dir=true https://github.com/NVIDIA/nvidia-container-toolkit.git#${NVIDIA_CONTAINER_TOOLKIT_REV} /nvct
 
 WORKDIR /nvct
 
-COPY patches/* /nvct
-RUN for x in /nvct/*.patch; do \
+RUN for x in /patches/nvct/*.patch; do \
         git am "$x" ; \
     done
 
@@ -104,7 +126,8 @@ COPY scripts/${JETPACK_VER}/* /
 
 # Process CDI files
 WORKDIR /
-RUN mkdir -p /ldconfig-bin /nvfanctrl/dist /nvct/dist /cdi /rootfs-dist /cdi-dist /rules.d && \
+RUN mkdir -p /ldconfig-bin /nvfanctrl/dist /nvct/dist /cdi /cdi-dist /rules.d /lnk && \
+    ln -sf /persist/coretee /lnk/coretee && \
     mkdir -p /rootfs && \
     if [ -n "$(ls /cdi/* 2> /dev/null)" ]; then \
         for x in /cdi/*.yaml; do \
@@ -134,6 +157,9 @@ COPY --from=build /nvfanctrl/dist/* /opt/vendor/nvidia/bin/
 COPY --from=build /nvct/dist/* /opt/vendor/nvidia/bin/
 COPY --from=build /nv-init.sh /opt/vendor/nvidia/init.d/
 COPY --from=build /eve-platform /opt/vendor/nvidia/
+COPY --from=build /lnk /
+COPY --from=build /011-tee-supplicant /etc/init.d/
+COPY --from=build /optee-client/* /
 
 ENTRYPOINT []
 CMD []
