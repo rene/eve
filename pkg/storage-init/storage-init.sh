@@ -281,6 +281,9 @@ if P3=$(findfs PARTLABEL=P3) && [ -n "$P3" ]; then
     # deposit fs type into /run
     echo "$P3_FS_TYPE" > /run/eve.persist_type
 
+    # Create directory for trustzone userspace FS
+    mkdir -p /persist/coretee
+
     if [ "$INIT_FS" = 1 ]; then
       # store file to indicate that EVE will clean vault
       # in case of no key received from controller
