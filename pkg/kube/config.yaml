@@ -5,8 +5,7 @@ write-kubeconfig-mode: "0644"
 log: "/persist/kubelog/k3s.log"
 # disable agent tunneling, we are on the same network
 egress-selector-mode: "disabled"
-# Use longhorn storage
-disable: local-storage
+default-local-storage-path: "/persist/vault/volumes"
 etcd-arg:
   - "quota-backend-bytes=8589934592"
 etcd-expose-metrics: true
@@ -16,11 +15,8 @@ disable-cloud-controller: true
 kubelet-arg:
   - "node-status-update-frequency=2s"
 kube-controller-arg:
-  - "node-monitor-period=5s"
+  - "node-monitor-period=10s"
   - "node-monitor-grace-period=40s"
-kube-controller-manager-arg:
-  - "node-monitor-period=2s"
-  - "node-monitor-grace-period=10s"
 kube-apiserver-arg:
   - "event-ttl=72h"
   - "authentication-token-webhook-config-file=/etc/kube-api-authn-webhook.yaml"

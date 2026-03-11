@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile-upstream:1.5.0-rc2-labs
 
-FROM lfedge/eve-alpine:745ae9066273c73b0fd879c4ba4ff626a8392d04 AS build
+FROM lfedge/eve-alpine:000e3b2bc3c441f8a0bb7f60921c394b60544c56 AS build
 ENV PKGS alpine-baselayout musl-utils iproute2 iptables curl openrc \
          open-iscsi libvirt libvirt-client util-linux grep findutils jq \
-         cni-plugins nfs-utils
+         cni-plugins nfs-utils inotify-tools
 RUN eve-alpine-deploy.sh
 
 COPY eve-bridge /plugins/eve-bridge
@@ -21,6 +21,9 @@ RUN GO111MODULE=on go build -v -ldflags "-s -w" -mod=vendor -o /out/usr/bin/upda
 FROM scratch
 COPY --from=build /out/ /
 RUN mkdir -p /usr/bin/kube/
+
+# Kube general path for all manifests before applying to each cluster mode
+RUN mkdir -p /etc/kube/
 COPY cluster-init.sh /usr/bin/
 COPY cluster-utils.sh /usr/bin/
 COPY cgconfig.conf /etc
@@ -30,6 +33,7 @@ COPY tie-breaker-utils.sh /usr/bin/
 COPY lib/* /usr/bin/
 RUN mkdir -p /etc/k3s-manifests
 COPY manifests/* /etc/k3s-manifests/
+
 
 # upgrades
 COPY cluster-update.sh /usr/bin/
@@ -45,6 +49,7 @@ COPY k3s-pod-logs.sh /usr/bin/
 COPY registration-utils.sh /usr/bin/
 COPY all-kube-events.sh /usr/bin/
 COPY lib/* /usr/bin/kube/
+COPY cfg-manifests/03-enc-disable-local-path.yaml /etc/kube/
 
 # kubevirt yaml files are patched files and will be removed later, look at cluster-init.sh
 COPY multus-daemonset.yaml /etc
@@ -52,6 +57,7 @@ COPY kubevirt-operator.yaml /etc
 COPY kubevirt-features.yaml /etc
 COPY external-boot-image.tar /etc/
 COPY kubevirt-utils.sh /usr/bin/
+COPY vnc-proxy.sh /usr/bin/
 
 # Longhorn config
 COPY longhorn-utils.sh /usr/bin/

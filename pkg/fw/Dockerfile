@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile-upstream:1.5.0-rc2-labs
 ARG PLATFORM=generic
 
-FROM lfedge/eve-alpine:745ae9066273c73b0fd879c4ba4ff626a8392d04 AS build-base
+FROM lfedge/eve-alpine:000e3b2bc3c441f8a0bb7f60921c394b60544c56 AS build-base
 
 ARG TARGETARCH
 
@@ -96,7 +96,7 @@ ADD https://hailo-hailort.s3.eu-west-2.amazonaws.com/Hailo8/${HAILO_FW_VERSION}/
 
 # generate initrd for Intel's and AMD's microcode
 # it makes sense only for x86_64 platform
-FROM --platform=${TARGETPLATFORM} lfedge/eve-alpine:745ae9066273c73b0fd879c4ba4ff626a8392d04 AS ucode-build-common
+FROM --platform=${TARGETPLATFORM} lfedge/eve-alpine:000e3b2bc3c441f8a0bb7f60921c394b60544c56 AS ucode-build-common
 RUN mkdir -p /boot /tmp/ucode/intel /tmp/ucode/amd /usr/share/licenses/ucode
 
 FROM ucode-build-common AS ucode-build-amd64
@@ -137,7 +137,7 @@ FROM ucode-build-common AS ucode-build-arm64
 FROM ucode-build-common AS ucode-build-riscv64
 FROM ucode-build-${TARGETARCH} AS ucode-build
 
-FROM lfedge/eve-alpine:745ae9066273c73b0fd879c4ba4ff626a8392d04 AS compactor-common
+FROM lfedge/eve-alpine:000e3b2bc3c441f8a0bb7f60921c394b60544c56 AS compactor-common
 ENTRYPOINT []
 WORKDIR /
 COPY --from=build /lib/firmware/regulatory* /lib/firmware/
@@ -158,6 +158,8 @@ COPY --from=build /lib/firmware/iwlwifi-so-a0-gf-a0* /lib/firmware/
 COPY --from=build /lib/firmware/intel/ibt-0040-0041* /lib/firmware/intel/
 # Intel AX201NGW
 COPY --from=build /lib/firmware/iwlwifi-so-a0-hr-b0* /lib/firmware/
+# Intel Wi-Fi 6E AX211 160MHz on ASUS-NUC14SRK (Meteor Lake PCH CNVi)
+COPY --from=build /lib/firmware/iwlwifi-ma-b0-gf4-a0* /lib/firmware/
 # Dell Edge Gateway 300x firmware
 COPY --from=build /lib/firmware/rsi* /lib/firmware/rsi/
 # Intel Corporation Cannon Point-LP CNVi [Wireless-AC] (rev 30)
@@ -210,7 +212,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     fi
 
 
-FROM lfedge/eve-alpine:745ae9066273c73b0fd879c4ba4ff626a8392d04 AS compactor-full
+FROM lfedge/eve-alpine:000e3b2bc3c441f8a0bb7f60921c394b60544c56 AS compactor-full
 # get all possible FW
 COPY --from=build /lib/firmware/ /lib/firmware/
 

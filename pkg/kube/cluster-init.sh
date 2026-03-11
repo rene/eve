@@ -9,8 +9,6 @@ K3S_LOG_DIR="/persist/kubelog"
 INSTALL_LOG="${K3S_LOG_DIR}/k3s-install.log"
 CTRD_LOG="${K3S_LOG_DIR}/containerd-user.log"
 HOSTNAME=""
-VMICONFIG_FILENAME="/run/zedkube/vmiVNC.run"
-VNC_RUNNING=false
 ClusterPrefixMask=""
 clusterStatusPort="12346"
 INITIAL_WAIT_TIME=5
@@ -52,6 +50,8 @@ export KUBECONFIG=/etc/rancher/k3s/k3s.yaml # for virtctl command
 . /usr/bin/kubevirt-utils.sh
 # shellcheck source=pkg/kube/tie-breaker-utils.sh
 . /usr/bin/tie-breaker-utils.sh
+# shellcheck source=pkg/kube/vnc-proxy.sh
+. /usr/bin/vnc-proxy.sh
 
 # get cluster IP address from the cluster status file
 get_cluster_node_ip() {
@@ -488,52 +488,6 @@ reboot_with_reason() {
     reboot
 }
 
-# run virtctl vnc
-check_and_run_vnc() {
-  pid=$(pgrep -f "/usr/bin/virtctl vnc" )
-  # if remote-console config file exist, and either has not started, or need to restart
-  if [ -f "$VMICONFIG_FILENAME" ] && { [ "$VNC_RUNNING" = false ] || [ -z "$pid" ]; }; then
-    vmiName=""
-    vmiPort=""
-
-    # Read the file and extract values
-    while IFS= read -r line; do
-        case "$line" in
-            *"VMINAME:"*)
-                vmiName="${line#*VMINAME:}"   # Extract the part after "VMINAME:"
-                vmiName="${vmiName%%[[:space:]]*}"  # Remove leading/trailing whitespace
-                ;;
-            *"VNCPORT:"*)
-                vmiPort="${line#*VNCPORT:}"   # Extract the part after "VNCPORT:"
-                vmiPort="${vmiPort%%[[:space:]]*}"  # Remove leading/trailing whitespace
-                ;;
-        esac
-    done < "$VMICONFIG_FILENAME"
-
-    # Check if the 'vmiName' and 'vmiPort' values are empty, if so, log an error and return
-    if [ -z "$vmiName" ] || [ -z "$vmiPort" ]; then
-        logmsg "Error: VMINAME or VNCPORT is empty in $VMICONFIG_FILENAME"
-        return 1
-    fi
-
-    logmsg "virctl vnc on vmiName: $vmiName, port $vmiPort"
-    nohup /usr/bin/virtctl vnc "$vmiName" -n eve-kube-app --port "$vmiPort" --proxy-only &
-    VNC_RUNNING=true
-  else
-    if [ ! -f "$VMICONFIG_FILENAME" ]; then
-      if [ "$VNC_RUNNING" = true ]; then
-        if [ -n "$pid" ]; then
-            logmsg "Killing process with PID $pid"
-            kill -9 "$pid"
-        else
-            logmsg "Error: Process not found"
-        fi
-      fi
-      VNC_RUNNING=false
-    fi
-  fi
-}
-
 # get the EdgeNodeClusterStatus
 enc_status_file="/run/zedkube/EdgeNodeClusterStatus/global.json"
 # If the node is part of a cluster, even if the case of only one node in the cluster
@@ -948,6 +902,22 @@ node-ip: "${cluster_node_ip}"
 EOF
       )
 
+    Config_cluster_type_get
+    cluster_type=$?
+    if [ $cluster_type -eq $CLUSTER_TYPE_UNSPECIFIED ]; then
+            if ! Registration_Applied; then
+                   cp "${KUBE_MANIFESTS_SRC_DIR}/${K3S_CONFIG_FILE_DISABLE_LOCAL_PATH}" "${K3S_CONFIG_DIR}/${K3S_CONFIG_FILE_DISABLE_LOCAL_PATH}"
+            else
+                   rm "${K3S_CONFIG_DIR}/${K3S_CONFIG_FILE_DISABLE_LOCAL_PATH}"
+            fi
+    elif [ $cluster_type -eq $CLUSTER_TYPE_REPLICATED_STORAGE ]; then
+            cp "${KUBE_MANIFESTS_SRC_DIR}/${K3S_CONFIG_FILE_DISABLE_LOCAL_PATH}" "${K3S_CONFIG_DIR}/${K3S_CONFIG_FILE_DISABLE_LOCAL_PATH}"
+    elif [ $cluster_type -eq $CLUSTER_TYPE_K3S_BASE ]; then
+            rm "${K3S_CONFIG_DIR}/${K3S_CONFIG_FILE_DISABLE_LOCAL_PATH}"
+    else
+            logmsg "possible unhandled cluster type $cluster_type in (provision_cluster_config_file)"
+    fi
+
     # we have 2 conditions, one is we are the bootstrap node or not, the other is we are
     # the first time configure k3s cluster or not. If both are true, then we need bootstrap config
     # otherwise, we just need normal server config to join the existing cluster
@@ -1074,6 +1044,9 @@ logmsg "containerd started"
 
 # task running in the background to check if the cluster config has changed
 monitor_cluster_config_change &
+
+# task running in the background to monitor VNC config file changes
+monitor_vnc_config &
 
 # if this is the first time to run install, we may wait for the
 # cluster config and status
@@ -1351,6 +1324,15 @@ else
                         fi
                 fi
 
+                # Migrate KubeVirt feature gates added in newer EVE images (e.g. VideoConfig).
+                # Skipped on first boot after fresh install (kubevirt_initialized was just
+                # created by Kubevirt_install which already applied the features yaml).
+                if [ "$install_kubevirt" = "1" ] && [ ! -f /var/lib/kubevirt-feature-gates-migrated ]; then
+                        if Kubevirt_migrate_feature_gates; then
+                                touch /var/lib/kubevirt-feature-gates-migrated
+                        fi
+                fi
+
                 if Longhorn_is_ready; then
                         check_overwrite_nsmounter
                         Tie_breaker_configApply
@@ -1411,7 +1393,6 @@ fi
         check_log_file_size "containerd-user.log"
         check_kubeconfig_yaml_files
         check_and_remove_excessive_k3s_logs
-        check_and_run_vnc
         wait_for_item "wait"
         sleep 15
 done
