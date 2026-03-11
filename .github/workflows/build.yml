@@ -31,7 +31,7 @@ jobs:
             platform: nvidia-jp6
           - arch: amd64
             platform: evaluation
-    runs-on: ${{ matrix.arch == 'arm64' && 'zededa-ubuntu-2204-arm64' || 'zededa-ubuntu-2204' }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'zededa-ubuntu-2204-arm64' || 'test' }}
 
     steps:
       - name: Starting Report
