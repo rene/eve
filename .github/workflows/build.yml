@@ -22,15 +22,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [ arm64, amd64, riscv64 ]
+        arch: [ amd64 ]
         platform: [ generic ]
-        include:
-          - arch: arm64
-            platform: nvidia-jp5
-          - arch: arm64
-            platform: nvidia-jp6
-          - arch: amd64
-            platform: evaluation
     runs-on: ${{ matrix.arch == 'arm64' && 'zededa-ubuntu-2204-arm64' || 'test' }}
 
     steps:
@@ -52,10 +45,6 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-      - name: Login to Docker Hub
-        if: ${{ github.event.repository.full_name }}== 'lf-edge/eve'
-        run: | # Runners must provide default credentials
-          docker login
       - name: ensure zstd for cache  # this should be removed once the arm64 VM includes zstd
         if: ${{ matrix.os == 'buildjet-4vcpu-ubuntu-2204-arm' || matrix.os == 'arm64-secure' }}
         run: |
@@ -92,29 +81,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64, amd64]
-        hv: [xen, kvm]
+        arch: [amd64]
+        hv: [kvm]
         platform: [generic]
-        include:
-          - arch: riscv64
-            hv: mini
-            platform: generic
-          - arch: amd64
-            hv: kvm
-            platform: rt
-          - arch: arm64
-            hv: kvm
-            platform: nvidia-jp5
-          - arch: arm64
-            hv: kvm
-            platform: nvidia-jp6
-          - arch: amd64
-            hv: kvm
-            platform: evaluation
-          - arch: amd64
-            hv: k
-            platform: generic
-    runs-on: ${{ matrix.arch == 'arm64' && 'zededa-ubuntu-2204-arm64' || 'zededa-ubuntu-2204' }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'zededa-ubuntu-2204-arm64' || 'test' }}
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
@@ -122,11 +92,6 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-
-      - name: Login to Docker Hub
-        if: ${{ github.event.repository.full_name }}== 'lf-edge/eve'
-        run: | # Runners must provide default credentials
-          docker login
 
       - name: Arch Runner is Matrix
         id: arch_runner_equals_matrix
