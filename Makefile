@@ -1076,7 +1076,8 @@ $(LINUXKIT): $(BUILDTOOLS_BIN)/linuxkit-$(LINUXKIT_VERSION) $(PARALLEL_BUILD_LOC
 	$(QUIET): $@: Succeeded
 
 $(BUILDTOOLS_BIN)/linuxkit-$(LINUXKIT_VERSION):
-	$(QUIET) curl -L -o $@ $(LINUXKIT_SOURCE)/releases/download/$(LINUXKIT_VERSION)/linuxkit-$(LOCAL_GOOS)-$(HOSTARCH) && chmod +x $@
+# 	$(QUIET) curl -L -o $@ $(LINUXKIT_SOURCE)/releases/download/$(LINUXKIT_VERSION)/linuxkit-$(LOCAL_GOOS)-$(HOSTARCH) && chmod +x $@
+	$(QUIET) cp /tmp/linuxkit $@
 	$(QUIET): $@: Succeeded
 
 $(GOBUILDER):
