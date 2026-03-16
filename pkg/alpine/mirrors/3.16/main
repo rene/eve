@@ -478,6 +478,8 @@ texinfo
 u-boot-tools
 udev-init-scripts
 unzip
+usb-modeswitch
+usb-modeswitch-udev
 usbutils
 userspace-rcu
 util-linux
