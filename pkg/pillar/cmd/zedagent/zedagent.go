@@ -308,6 +308,7 @@ func queueInfoToDest(ctx *zedagentContext, dest destinationBitset,
 	key string, buf *bytes.Buffer, bailOnHTTPErr,
 	withNetTracing, forcePeriodic bool, itemType interface{}) {
 
+	// some comment change
 	var locURL string
 	if ctx.getconfigCtx.locConfig != nil {
 		locURL = ctx.getconfigCtx.locConfig.LocURL
