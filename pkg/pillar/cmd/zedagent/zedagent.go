@@ -392,6 +392,7 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 	zedagentCtx.triggerClusterInfo = triggerClusterInfo
 	zedagentCtx.triggerClusterUpdateInfo = triggerClusterUpdateInfo
 
+	// change something
 	zedagentCtx.getconfigCtx.localCmdAgent = localcommand.NewLocalCmdAgent(
 		localcommand.ConstructorArgs{
 			Log:         log,
