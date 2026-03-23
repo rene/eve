@@ -62,6 +62,8 @@ RUN mkdir /linux-firmware &&\
     tar -xz --strip-components=1 -C /linux-firmware -f /linux-firmware.tar.gz &&\
     make -C /linux-firmware FIRMWAREDIR="/lib/firmware" install
 
+COPY firmware-qti /firmware-qti
+
 # add compat links for pre-5.0 kernel
 RUN ln -s brcmfmac43455-sdio.raspberrypi,3-model-b-plus.txt /lib/firmware/brcm/brcmfmac43455-sdio.txt &&\
     ln -s brcmfmac43430-sdio.raspberrypi,3-model-b.txt /lib/firmware/brcm/brcmfmac43430-sdio.txt
@@ -189,6 +191,15 @@ COPY --from=build /rtw88/*.bin /lib/firmware/rtw88/
 # Intel ICE firmware.
 COPY --from=build /lib/firmware/intel/ice /lib/firmware/intel/ice
 COPY --from=build /lib/firmware/hailo /lib/firmware/hailo
+# Qualcomm's IQ9 Firmware
+COPY --from=build /firmware-qti/* /lib/firmware/
+COPY --from=build /firmware-qti/ath11k /lib/firmware/ath11k
+COPY --from=build /firmware-qti/brcm /lib/firmware/brcm
+COPY --from=build /firmware-qti/qcacld /lib/firmware/qcacld
+COPY --from=build /firmware-qti/qcom /lib/firmware/qcom
+COPY --from=build /firmware-qti/updates /lib/firmware/updates
+COPY --from=build /firmware-qti/wlan /lib/firmware/wlan
+RUN ln -s /lib/firmware/qcacld/WCN6855/hw2.1 /lib/firmware/updates/qca6490
 
 ARG TARGETARCH
 
