@@ -1,0 +1,4 @@
+wl_preinit=autocountry=1
+ccode=XZ
+dpc_cpucore=0
+rxf_cpucore=1
