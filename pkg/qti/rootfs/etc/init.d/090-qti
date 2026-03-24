@@ -1,0 +1,53 @@
+#!/bin/sh
+# Copyright (c) 2026 Zededa, Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Start Qualcomm userspace services. Each service is only started when the
+# device node it serves exists, mirroring the conditions of the systemd units
+# shipped by the Qualcomm Linux BSP (meta-qcom).
+#
+# The QRTR name service and the pd-mapper are provided by the kernel
+# (CONFIG_QRTR, CONFIG_QCOM_PD_MAPPER).
+
+# Remote processors (and their device nodes) come up asynchronously, so wait
+# for a while before giving up on a service.
+DEV_WAIT_TIMEOUT=60
+
+# start_on_dev "<device nodes>" <command> [args...]
+# Start <command> in background as soon as any of the given device nodes
+# (glob patterns allowed) shows up, or give up after DEV_WAIT_TIMEOUT seconds.
+start_on_dev() {
+    devs="$1"
+    shift
+    (
+        i=0
+        while [ "$i" -lt "$DEV_WAIT_TIMEOUT" ]; do
+            for d in $devs; do
+                if [ -e "$d" ]; then
+                    exec "$@"
+                fi
+            done
+            sleep 1
+            i=$((i + 1))
+        done
+    ) &
+}
+
+# TFTP server over QRTR, used by remote processors to fetch files
+/usr/bin/tqftpserv &
+
+# Remote filesystem service for the modem (only when the modem shared memory
+# region is present)
+start_on_dev "/dev/qcom_rmtfs_mem*" /usr/bin/rmtfs -r -P -s
+
+# FastRPC daemons
+start_on_dev "/dev/fastrpc-adsp /dev/fastrpc-adsp-secure" /usr/sbin/adsprpcd
+start_on_dev "/dev/fastrpc-adsp /dev/fastrpc-adsp-secure" /usr/sbin/adsprpcd audiopd
+start_on_dev "/dev/fastrpc-cdsp /dev/fastrpc-cdsp-secure" /usr/sbin/cdsprpcd
+start_on_dev "/dev/fastrpc-cdsp1 /dev/fastrpc-cdsp1-secure" /usr/sbin/cdsprpcd rootpd cdsp1
+start_on_dev "/dev/fastrpc-gdsp0 /dev/fastrpc-gdsp0-secure" /usr/sbin/gdsprpcd rootpd gdsp0
+start_on_dev "/dev/fastrpc-gdsp1 /dev/fastrpc-gdsp1-secure" /usr/sbin/gdsprpcd rootpd gdsp1
+start_on_dev "/dev/fastrpc-sdsp /dev/fastrpc-sdsp-secure" /usr/sbin/sdsprpcd
+
+# Trigger udev again after load everything
+udevadm trigger
