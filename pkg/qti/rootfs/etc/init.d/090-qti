@@ -1,0 +1,16 @@
+#!/bin/sh
+
+# rmtfs
+/usr/bin/rmtfs &
+
+# Start qtr-ns
+/usr/bin/qrtr-ns &
+
+# Start tftp server
+/usr/bin/tqftpserv &
+
+# pd-mapper
+/usr/bin/pd-mapper &
+
+# Trigger udev again after load everything
+udevadm trigger
