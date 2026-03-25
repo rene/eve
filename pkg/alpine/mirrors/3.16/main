@@ -216,6 +216,7 @@ libatomic
 libattr
 libblkid
 libbsd
+libbsd-dev
 libburn
 libbz2
 libc-dev
@@ -502,6 +503,8 @@ xz-dev
 xz-libs
 yajl
 yajl-dev
+yaml
+yaml-dev
 zfs
 zfs-dev
 zfs-libs
