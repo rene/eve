@@ -20,6 +20,11 @@
 
 set -e
 
+# Curl timeout settings (seconds). Override via env vars if needed.
+CURL_CONNECT_TIMEOUT=${CURL_CONNECT_TIMEOUT:-10}   # 10 seconds to establish connection
+CURL_MAX_TIME=${CURL_MAX_TIME:-120}                 # 2 minutes max per download
+CURL_RETRIES=${CURL_RETRIES:-3}                     # retry up to 3 times on transient failures
+
 verbose=
 tags=
 evedir=
@@ -226,7 +231,11 @@ while read -r line ; do
             case $url in
                 https://*|http://*|ftp://*)
                     [ -n "$verbose" ] && echo "found $s basename ${filename}" >&2
-                    if ! curl -sSLo "${dstdir}/${filename}" "${url}"; then
+                    if ! curl -sSLo "${dstdir}/${filename}" \
+                            --connect-timeout "${CURL_CONNECT_TIMEOUT}" \
+                            --max-time "${CURL_MAX_TIME}" \
+                            --retry "${CURL_RETRIES}" --retry-all-errors \
+                            "${url}"; then
                         >&2 echo "Failed to download $url"
                         rm -f "${dstdir}/${filename}"
                         badfileslist="${badfileslist} missing:${pkgpath}:${filename}"
