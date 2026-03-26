@@ -25,6 +25,32 @@ CURL_CONNECT_TIMEOUT=${CURL_CONNECT_TIMEOUT:-10}   # 10 seconds to establish con
 CURL_MAX_TIME=${CURL_MAX_TIME:-120}                 # 2 minutes max per download
 CURL_RETRIES=${CURL_RETRIES:-3}                     # retry up to 3 times on transient failures
 
+# Rewrite known-slow upstream URLs to faster mirrors.
+# The original URL is kept as a fallback if the mirror fails.
+rewrite_url() {
+    local url="$1"
+    case "$url" in
+        # ftp.gnu.org (FTP and HTTPS) -> ftpmirror.gnu.org (geo-routed HTTPS)
+        ftp://ftp.gnu.org/gnu/*)
+            echo "${url/ftp:\/\/ftp.gnu.org\/gnu\//https://ftpmirror.gnu.org/}";;
+        https://ftp.gnu.org/gnu/*|http://ftp.gnu.org/gnu/*)
+            echo "${url/ftp.gnu.org\/gnu\//ftpmirror.gnu.org/}";;
+        # savannah.gnu.org -> download.savannah.gnu.org (geo-routed)
+        https://download-mirror.savannah.gnu.org/*|http://download-mirror.savannah.gnu.org/*)
+            echo "${url/download-mirror.savannah.gnu.org/download.savannah.gnu.org}";;
+        # kernel.org -> CDN-backed edge mirror
+        https://www.kernel.org/pub/*|http://www.kernel.org/pub/*)
+            echo "${url/www.kernel.org\/pub/mirrors.edge.kernel.org\/pub}";;
+        # busybox.net -> buildroot sources mirror
+        https://busybox.net/downloads/*)
+            echo "https://sources.buildroot.net/busybox/${url##*/}";;
+        http://busybox.net/downloads/*)
+            echo "https://sources.buildroot.net/busybox/${url##*/}";;
+        *)
+            echo "$url";;
+    esac
+}
+
 verbose=
 tags=
 evedir=
@@ -231,16 +257,35 @@ while read -r line ; do
             case $url in
                 https://*|http://*|ftp://*)
                     [ -n "$verbose" ] && echo "found $s basename ${filename}" >&2
-                    if ! curl -sSLo "${dstdir}/${filename}" \
-                            --connect-timeout "${CURL_CONNECT_TIMEOUT}" \
-                            --max-time "${CURL_MAX_TIME}" \
-                            --retry "${CURL_RETRIES}" --retry-all-errors \
-                            "${url}"; then
-                        >&2 echo "Failed to download $url"
-                        rm -f "${dstdir}/${filename}"
-                        badfileslist="${badfileslist} missing:${pkgpath}:${filename}"
-                        badfilescount=$((badfilescount + 1))
-                        continue
+                    mirror_url=$(rewrite_url "$url")
+                    downloaded=false
+                    # Try the mirror first if URL was rewritten
+                    if [ "$mirror_url" != "$url" ]; then
+                        [ -n "$verbose" ] && echo "trying mirror $mirror_url" >&2
+                        if curl -sSLo "${dstdir}/${filename}" \
+                                --connect-timeout "${CURL_CONNECT_TIMEOUT}" \
+                                --max-time "${CURL_MAX_TIME}" \
+                                --retry "${CURL_RETRIES}" --retry-all-errors \
+                                "${mirror_url}"; then
+                            downloaded=true
+                        else
+                            >&2 echo "Mirror failed for $mirror_url, falling back to $url"
+                            rm -f "${dstdir}/${filename}"
+                        fi
+                    fi
+                    # Fall back to original URL
+                    if [ "$downloaded" = false ]; then
+                        if ! curl -sSLo "${dstdir}/${filename}" \
+                                --connect-timeout "${CURL_CONNECT_TIMEOUT}" \
+                                --max-time "${CURL_MAX_TIME}" \
+                                --retry "${CURL_RETRIES}" --retry-all-errors \
+                                "${url}"; then
+                            >&2 echo "Failed to download $url"
+                            rm -f "${dstdir}/${filename}"
+                            badfileslist="${badfileslist} missing:${pkgpath}:${filename}"
+                            badfilescount=$((badfilescount + 1))
+                            continue
+                        fi
                     fi
                     ;;
                 *)
