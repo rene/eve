@@ -24,6 +24,8 @@ set -e
 CURL_CONNECT_TIMEOUT=${CURL_CONNECT_TIMEOUT:-10}   # 10 seconds to establish connection
 CURL_MAX_TIME=${CURL_MAX_TIME:-120}                 # 2 minutes max per download
 CURL_RETRIES=${CURL_RETRIES:-3}                     # retry up to 3 times on transient failures
+# Max parallel downloads
+PARALLEL_JOBS=${PARALLEL_JOBS:-8}
 
 # Rewrite known-slow upstream URLs to faster mirrors.
 # The original URL is kept as a fallback if the mirror fails.
@@ -50,6 +52,39 @@ rewrite_url() {
             echo "$url";;
     esac
 }
+
+# Download a single file, trying mirror first then falling back to original URL.
+# Args: <dstdir> <filename> <url> <pkgpath>
+# Appends errors to $DOWNLOAD_ERRORS_FILE (one per line).
+download_one() {
+    local dstdir="$1" filename="$2" url="$3" pkgpath="$4"
+    local mirror_url
+    mirror_url=$(rewrite_url "$url")
+    # Try mirror first if URL was rewritten
+    if [ "$mirror_url" != "$url" ]; then
+        if curl -sSLo "${dstdir}/${filename}" \
+                --connect-timeout "${CURL_CONNECT_TIMEOUT}" \
+                --max-time "${CURL_MAX_TIME}" \
+                --retry "${CURL_RETRIES}" --retry-all-errors \
+                "${mirror_url}" 2>/dev/null; then
+            return 0
+        fi
+        >&2 echo "Mirror failed for $mirror_url, falling back to $url"
+        rm -f "${dstdir}/${filename}"
+    fi
+    # Original URL
+    if ! curl -sSLo "${dstdir}/${filename}" \
+            --connect-timeout "${CURL_CONNECT_TIMEOUT}" \
+            --max-time "${CURL_MAX_TIME}" \
+            --retry "${CURL_RETRIES}" --retry-all-errors \
+            "${url}"; then
+        >&2 echo "Failed to download $url"
+        rm -f "${dstdir}/${filename}"
+        echo "missing:${pkgpath}:${filename}" >> "${DOWNLOAD_ERRORS_FILE}"
+        return 1
+    fi
+}
+export -f download_one rewrite_url
 
 verbose=
 tags=
@@ -163,6 +198,12 @@ awk '{print $1, $2, $3, $4}' ${OCPAIRS}.with_licenses | sort -u >${OCPAIRS}
 badfilescount=0
 badfileslist=""
 
+# File for collecting download jobs (phase 1) and errors from parallel workers
+DOWNLOAD_JOBS=$(mktemp)
+DOWNLOAD_ERRORS_FILE=$(mktemp)
+VERIFY_JOBS=$(mktemp)
+export DOWNLOAD_ERRORS_FILE CURL_CONNECT_TIMEOUT CURL_MAX_TIME CURL_RETRIES
+
 TMP_DIR=$(mktemp -d)
 if [ -n "$gitdir" ]; then
     cp -r "$gitdir/." "${TMP_DIR}"
@@ -257,36 +298,9 @@ while read -r line ; do
             case $url in
                 https://*|http://*|ftp://*)
                     [ -n "$verbose" ] && echo "found $s basename ${filename}" >&2
-                    mirror_url=$(rewrite_url "$url")
-                    downloaded=false
-                    # Try the mirror first if URL was rewritten
-                    if [ "$mirror_url" != "$url" ]; then
-                        [ -n "$verbose" ] && echo "trying mirror $mirror_url" >&2
-                        if curl -sSLo "${dstdir}/${filename}" \
-                                --connect-timeout "${CURL_CONNECT_TIMEOUT}" \
-                                --max-time "${CURL_MAX_TIME}" \
-                                --retry "${CURL_RETRIES}" --retry-all-errors \
-                                "${mirror_url}"; then
-                            downloaded=true
-                        else
-                            >&2 echo "Mirror failed for $mirror_url, falling back to $url"
-                            rm -f "${dstdir}/${filename}"
-                        fi
-                    fi
-                    # Fall back to original URL
-                    if [ "$downloaded" = false ]; then
-                        if ! curl -sSLo "${dstdir}/${filename}" \
-                                --connect-timeout "${CURL_CONNECT_TIMEOUT}" \
-                                --max-time "${CURL_MAX_TIME}" \
-                                --retry "${CURL_RETRIES}" --retry-all-errors \
-                                "${url}"; then
-                            >&2 echo "Failed to download $url"
-                            rm -f "${dstdir}/${filename}"
-                            badfileslist="${badfileslist} missing:${pkgpath}:${filename}"
-                            badfilescount=$((badfilescount + 1))
-                            continue
-                        fi
-                    fi
+                    # Queue for parallel download (tab-separated)
+                    printf '%s\t%s\t%s\t%s\n' "${dstdir}" "${filename}" "${url}" "${pkgpath}" \
+                        >> "${DOWNLOAD_JOBS}"
                     ;;
                 *)
                     [ -n "$verbose" ] && echo "not http*: $s" >&2
@@ -298,38 +312,12 @@ while read -r line ; do
                     fi
                     ;;
             esac
+            # Queue checksum verification if this package has sha512sums
             if [ -n "${sha512sums}" ]; then
-                sum=$(openssl sha512 "${dstdir}/${filename}" | awk '{print $2}')
-                rsum=$(grep ' '"$filename"\$ "${dstdir}/sha512sums.APKBUILD" | awk '{print $1}')
-                if [ "${sum}" != "${rsum}" ]; then
-                    errmsg="mismatched-sh512"
-                    echo "Mismatched sh512 for $url into ${dstdir}/${filename}" >&2
-                    if grep -qsi '404 Not Found' "${dstdir}/${filename}"; then
-                        errmsg="404-not-found"
-                        >&2 echo "404 Not Found for ${url}"
-                        rm -f "${dstdir}/${filename}"
-                    elif grep -qsi '^<!DOCTYPE html' "${dstdir}/${filename}"; then
-                        >&2 echo "Bad DOCTYPE for $url into ${dstdir}/${filename}"
-                        errmsg="bad-content"
-                        rm -f "${dstdir}/${filename}"
-                    elif grep -qsi 'Too many requests' "${dstdir}/${filename}"; then
-                        errmsg="too-many-requests"
-                        >&2 echo "Too many requests for ${url}"
-                        rm -f "${dstdir}/${filename}"
-                    else
-                        [ -n "$verbose" ] && echo "Bad content: $(cat "${dstdir}/${filename}")" >&2
-                    fi
-                    # "Bad content" and "Too many requests" isn't really missing ...
-                    badfileslist="${badfileslist} ${errmsg}:${pkgpath}:${filename}"
-                    badfilescount=$((badfilescount + 1))
-                else
-                    echo "$sum $filename" >> "${dstdir}/sha512sums.received"
-                fi
+                printf '%s\t%s\t%s\t%s\n' "${dstdir}" "${filename}" "${url}" "${pkgpath}" \
+                    >> "${VERIFY_JOBS}"
             fi
         done
-        if [ "$badfilescount" != 0 ]; then
-            echo "Missing/bad $badfilescount files" >&2
-        fi
     fi
 
     echo "alpine,$name_version,$commit,$pkgpath"
@@ -338,6 +326,64 @@ done < "${OCPAIRS}"
 # clean up our temporary cloned directory
 rm -rf "$TMP_DIR"
 sync
+
+# Phase 2: Download all source files in parallel
+if [ -s "${DOWNLOAD_JOBS}" ]; then
+    # shellcheck disable=SC2002
+    njobs=$(wc -l < "${DOWNLOAD_JOBS}")
+    [ -z "$quiet" ] && echo "Downloading ${njobs} source files (${PARALLEL_JOBS} parallel)..." >&2
+    while IFS=$'\t' read -r dl_dstdir dl_filename dl_url dl_pkgpath; do
+        download_one "$dl_dstdir" "$dl_filename" "$dl_url" "$dl_pkgpath" &
+        # Limit concurrent jobs
+        while [ "$(jobs -rp | wc -l)" -ge "${PARALLEL_JOBS}" ]; do
+            wait -n 2>/dev/null || true
+        done
+    done < "${DOWNLOAD_JOBS}"
+    # Wait for remaining downloads
+    wait
+    [ -z "$quiet" ] && echo "Downloads complete." >&2
+fi
+
+# Phase 3: Verify checksums
+if [ -s "${VERIFY_JOBS}" ]; then
+    while IFS=$'\t' read -r v_dstdir v_filename v_url v_pkgpath; do
+        [ -f "${v_dstdir}/${v_filename}" ] || continue
+        [ -f "${v_dstdir}/sha512sums.APKBUILD" ] || continue
+        sum=$(openssl sha512 "${v_dstdir}/${v_filename}" | awk '{print $2}')
+        rsum=$(grep ' '"$v_filename"\$ "${v_dstdir}/sha512sums.APKBUILD" | awk '{print $1}')
+        if [ "${sum}" != "${rsum}" ]; then
+            errmsg="mismatched-sh512"
+            echo "Mismatched sh512 for $v_url into ${v_dstdir}/${v_filename}" >&2
+            if grep -qsi '404 Not Found' "${v_dstdir}/${v_filename}"; then
+                errmsg="404-not-found"
+                >&2 echo "404 Not Found for ${v_url}"
+                rm -f "${v_dstdir}/${v_filename}"
+            elif grep -qsi '^<!DOCTYPE html' "${v_dstdir}/${v_filename}"; then
+                >&2 echo "Bad DOCTYPE for $v_url into ${v_dstdir}/${v_filename}"
+                errmsg="bad-content"
+                rm -f "${v_dstdir}/${v_filename}"
+            elif grep -qsi 'Too many requests' "${v_dstdir}/${v_filename}"; then
+                errmsg="too-many-requests"
+                >&2 echo "Too many requests for ${v_url}"
+                rm -f "${v_dstdir}/${v_filename}"
+            else
+                [ -n "$verbose" ] && echo "Bad content: $(cat "${v_dstdir}/${v_filename}")" >&2
+            fi
+            echo "${errmsg}:${v_pkgpath}:${v_filename}" >> "${DOWNLOAD_ERRORS_FILE}"
+        else
+            echo "$sum $v_filename" >> "${v_dstdir}/sha512sums.received"
+        fi
+    done < "${VERIFY_JOBS}"
+fi
+
+# Collect errors from download workers and checksum verification
+if [ -s "${DOWNLOAD_ERRORS_FILE}" ]; then
+    while read -r err; do
+        badfileslist="${badfileslist} ${err}"
+        badfilescount=$((badfilescount + 1))
+    done < "${DOWNLOAD_ERRORS_FILE}"
+fi
+rm -f "${DOWNLOAD_JOBS}" "${DOWNLOAD_ERRORS_FILE}" "${VERIFY_JOBS}"
 
 if [ -n "$urlfile" ]; then
     # shellcheck disable=SC2002
