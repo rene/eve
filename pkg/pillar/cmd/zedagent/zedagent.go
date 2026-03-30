@@ -367,6 +367,7 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 		fmt.Printf("Setting -V requires -p\n")
 		return 1
 	}
+	// nothing means anything
 
 	// Initialize zedagent context.
 	zedagentCtx.init()
