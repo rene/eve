@@ -1,0 +1,8 @@
+#!/bin/sh
+
+# Start tee-supplicant daemon if it exists
+if [ -f /usr/sbin/tee-supplicant ]; then
+	/usr/sbin/tee-supplicant -f /persist/coretee -d
+else
+	exit 0
+fi
