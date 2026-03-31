@@ -12,6 +12,7 @@ config:
     - /dev:/dev
     - /run/swtpm:/run/swtpm
     - /persist/swtpm:/persist/swtpm
+    - /persist/coretee:/persist/coretee
   devices:
     - path: all
       type: a
