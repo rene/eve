@@ -18,34 +18,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  packages:
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [ arm64, amd64, riscv64 ]
-        platform: [ generic ]
-        hv: [ default ]
-        include:
-          - arch: arm64
-            platform: nvidia-jp5
-            hv: default
-          - arch: arm64
-            platform: nvidia-jp6
-            hv: default
-          - arch: amd64
-            platform: evaluation
-            hv: default
-          - arch: amd64
-            platform: generic
-            hv: k
-    runs-on: ${{ matrix.arch == 'arm64' && 'zededa-ubuntu-2204-arm64' || 'jumbo' }}
-    timeout-minutes: 1440
+  # ════════════════════════════════════════════════════════════════════════
+  # Stage 1: packages that feed multiple eve targets
+  # These upload linuxkit cache as artifacts for the fan-out eve jobs.
+  # ════════════════════════════════════════════════════════════════════════
 
+  pkgs-amd64-generic:
+    runs-on: jumbo
+    timeout-minutes: 1440
     steps:
       - name: Starting Report
         run: |
-          echo Git Ref: ${{ github.event.pull_request.head.ref  }}
+          echo Git Ref: ${{ github.event.pull_request.head.ref }}
           echo GitHub Event: ${{ github.event_name }}
+          echo "Build target: pkgs amd64 generic"
           echo Disk usage
           df -h
           echo Memory
@@ -61,31 +47,19 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
       - name: Login to Docker Hub
-        if: ${{ github.event.repository.full_name == 'lf-edge/eve' }}
-        run: | # Runners must provide default credentials
-          docker login
-      - name: ensure zstd for cache  # this should be removed once the arm64 VM includes zstd
-        if: ${{ matrix.os == 'buildjet-4vcpu-ubuntu-2204-arm' || matrix.os == 'arm64-secure' }}
-        run: |
-          sudo apt install -y zstd
-      - name: ensure packages for cross-arch build
-        if: ${{ matrix.arch == 'riscv64' }}
-        run: |
-          APT_INSTALL="sudo apt install -y binfmt-support qemu-user-static"
-          # the following weird statement is here to speed up the happy path
-          # if the default server is responding -- we can skip apt update
-          $APT_INSTALL || { sudo apt update && $APT_INSTALL ; }
-      # The next step explicitly use actions/cache, rather than actions/cache/save at the end.
-      # If we rerun a job without changing the sha, we should not have to rebuild anything.
-      # Since the cache is keyed on the head sha, it will retrieve it.
-      - name: update linuxkit cache if available
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7  # v5.0.4
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
         with:
-          path: ~/.linuxkit/cache
-          key: linuxkit-${{ matrix.arch }}-${{ github.event.pull_request.head.sha }}-${{ matrix.platform }}-${{ matrix.hv }}
-      - name: Build packages for ${{ matrix.platform }} HV=${{ matrix.hv }}
+          username: ${{ secrets.MIKEM_DOCKERHUB_ACCOUNT }}
+          password: ${{ secrets.MIKEM_DOCKERHUB_TOKEN }}
+      - name: Build packages
         run: |
-          make V=1 PRUNE=1 PLATFORM=${{ matrix.platform }} ZARCH=${{ matrix.arch }} ${{ matrix.hv != 'default' && format('HV={0}', matrix.hv) || '' }} pkgs
+          make V=1 PRUNE=1 PLATFORM=generic ZARCH=amd64 pkgs
+      - name: Upload linuxkit cache
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: linuxkit-cache-amd64-generic
+          path: ~/.linuxkit/cache
+          retention-days: 1
       - name: Post package report
         run: |
           echo Disk usage
@@ -95,89 +69,105 @@ jobs:
           docker system df
           docker system df -v
 
-  eve:
-    needs: packages  # all packages for all platforms must be built first
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [arm64, amd64]
-        hv: [xen, kvm]
-        platform: [generic]
-        include:
-          - arch: riscv64
-            hv: mini
-            platform: generic
-          - arch: amd64
-            hv: kvm
-            platform: rt
-          - arch: arm64
-            hv: kvm
-            platform: nvidia-jp5
-          - arch: arm64
-            hv: kvm
-            platform: nvidia-jp6
-          - arch: amd64
-            hv: kvm
-            platform: evaluation
-          - arch: amd64
-            hv: k
-            platform: generic
-    runs-on: ${{ matrix.arch == 'arm64' && 'zededa-ubuntu-2204-arm64' || 'jumbo' }}
+  pkgs-arm64-generic:
+    runs-on: zededa-ubuntu-2204-arm64
     timeout-minutes: 1440
-
     steps:
+      - name: Starting Report
+        run: |
+          echo Git Ref: ${{ github.event.pull_request.head.ref }}
+          echo GitHub Event: ${{ github.event_name }}
+          echo "Build target: pkgs arm64 generic"
+          echo Disk usage
+          df -h
+          echo Memory
+          free -m
+      - name: Clear repository
+        run: |
+          sudo rm -fr "$GITHUB_WORKSPACE" && mkdir "$GITHUB_WORKSPACE"
+          rm -fr ~/.linuxkit
+          docker system prune --all --force --volumes
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-
       - name: Login to Docker Hub
-        if: ${{ github.event.repository.full_name == 'lf-edge/eve' }}
-        run: | # Runners must provide default credentials
-          docker login
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        with:
+          username: ${{ secrets.MIKEM_DOCKERHUB_ACCOUNT }}
+          password: ${{ secrets.MIKEM_DOCKERHUB_TOKEN }}
+      - name: Build packages
+        run: |
+          make V=1 PRUNE=1 PLATFORM=generic ZARCH=arm64 pkgs
+      - name: Upload linuxkit cache
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: linuxkit-cache-arm64-generic
+          path: ~/.linuxkit/cache
+          retention-days: 1
+      - name: Post package report
+        run: |
+          echo Disk usage
+          df -h
+          echo Memory
+          free -m
+          docker system df
+          docker system df -v
 
-      # For riscv64, we cross-build on amd64 runners. We need amd64 tool images
-      # (mkconf, mkimage-raw-efi, etc.) in docker, but riscv64 packages in the cache.
-      # So: restore amd64 cache -> load tools -> clear -> restore riscv64 cache.
-      - name: load amd64 tool images for riscv64 cross-build
-        if: ${{ matrix.arch == 'riscv64' }}
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7  # v5.0.4
+  # ════════════════════════════════════════════════════════════════════════
+  # Stage 2: eve targets that fan out from shared package builds
+  # ════════════════════════════════════════════════════════════════════════
+
+  eve-amd64-generic:
+    needs: pkgs-amd64-generic
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - hv: xen
+            platform: generic
+          - hv: kvm
+            platform: generic
+          - hv: kvm
+            platform: rt
+    runs-on: jumbo
+    timeout-minutes: 1440
+    steps:
+      - name: Clear repository
+        run: |
+          sudo rm -fr "$GITHUB_WORKSPACE" && mkdir "$GITHUB_WORKSPACE"
+          rm -fr ~/.linuxkit
+          docker system prune --all --force --volumes
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Login to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        with:
+          username: ${{ secrets.MIKEM_DOCKERHUB_ACCOUNT }}
+          password: ${{ secrets.MIKEM_DOCKERHUB_TOKEN }}
+      - name: Download linuxkit cache
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: linuxkit-cache-amd64-generic
           path: ~/.linuxkit/cache
-          key: linuxkit-amd64-${{ github.event.pull_request.head.sha }}-generic-default
-          fail-on-cache-miss: true
-      - name: load amd64 tools into docker for riscv64 cross-build
-        if: ${{ matrix.arch == 'riscv64' }}
+      - name: Load tool images into docker
         run: |
           make cache-export-docker-load-all
-          rm -rf ~/.linuxkit
-      # Restore the target arch/platform cache. For native builds (amd64, arm64),
-      # this cache also contains the tool images we need.
-      # The 'rt' platform has no platform-specific packages, so it uses the generic cache.
-      - name: update linuxkit cache for target arch
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7  # v5.0.4
-        with:
-          path: ~/.linuxkit/cache
-          key: linuxkit-${{ matrix.arch }}-${{ github.event.pull_request.head.sha }}-${{ matrix.platform == 'rt' && 'generic' || matrix.platform }}-${{ matrix.hv == 'k' && 'k' || 'default' }}
-          fail-on-cache-miss: true
-      # For native builds, load tool images from the target cache we just restored.
-      - name: load tool images into docker
-        if: ${{ matrix.arch != 'riscv64' }}
-        run: |
-          make cache-export-docker-load-all
-      - name: set environment
+      - name: Set environment
         env:
-          PR_ID: ${{ github.event.pull_request.number  }}
+          PR_ID: ${{ github.event.pull_request.number }}
         run: |
           COMMIT_ID=$(git describe --abbrev=8 --always)
           echo "VERSION=0.0.0-pr$PR_ID-$COMMIT_ID" >> $GITHUB_ENV
           echo "TAG=evebuild/pr:$PR_ID" >> $GITHUB_ENV
-          echo "ARCH=${{ matrix.arch }}" >> "$GITHUB_ENV"
-
-      - name: Build EVE ${{ matrix.hv }}-${{ matrix.arch }}-${{ matrix.platform }}
+          echo "ARCH=amd64" >> "$GITHUB_ENV"
+      - name: Build EVE ${{ matrix.hv }}-amd64-${{ matrix.platform }}
         run: |
-          make V=1 ROOTFS_VERSION="$VERSION" PLATFORM=${{ matrix.platform }} HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} eve
+          make V=1 ROOTFS_VERSION="$VERSION" PLATFORM=${{ matrix.platform }} HV=${{ matrix.hv }} ZARCH=amd64 eve
       - name: Post eve build report
         run: |
           echo Disk usage
@@ -188,17 +178,63 @@ jobs:
           docker system df -v
       - name: Export docker container
         run: |
-          make cache-export ZARCH=${{ matrix.arch }} IMAGE=lfedge/eve:$VERSION-${{ matrix.hv }} OUTFILE=eve-${{ matrix.hv }}-${{ matrix.arch }}-${{ matrix.platform }}.tar IMAGE_NAME=$TAG-${{ matrix.hv }}-${{ matrix.arch }}
-      - name: Upload EVE ${{ matrix.hv }}-${{ matrix.arch }}-${{ matrix.platform }}
+          make cache-export ZARCH=amd64 IMAGE=lfedge/eve:$VERSION-${{ matrix.hv }} OUTFILE=eve-${{ matrix.hv }}-amd64-${{ matrix.platform }}.tar IMAGE_NAME=$TAG-${{ matrix.hv }}-amd64
+      - name: Upload EVE ${{ matrix.hv }}-amd64-${{ matrix.platform }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
-          name: eve-${{ matrix.hv }}-${{ matrix.arch }}-${{ matrix.platform }}
-          path: eve-${{ matrix.hv }}-${{ matrix.arch }}-${{ matrix.platform }}.tar
-      - name: Clean EVE ${{ matrix.hv }}-${{ matrix.arch }}-${{ matrix.platform }}
+          name: eve-${{ matrix.hv }}-amd64-${{ matrix.platform }}
+          path: eve-${{ matrix.hv }}-amd64-${{ matrix.platform }}.tar
+      - name: Clean
+        if: ${{ always() }}
         run: |
           make clean
-          docker rmi "$TAG-${{ matrix.hv }}-${{ matrix.arch }}" "lfedge/eve:$VERSION-${{ matrix.hv }}" "lfedge/eve:$VERSION-${{ matrix.hv }}-${{ matrix.arch }}" ||:
-      - name: Post clean eve ${{ matrix.hv }}-${{ matrix.arch }}-${{ matrix.platform }} report
+          docker system prune -f -a --volumes
+          rm -rf ~/.linuxkit
+
+  eve-arm64-generic:
+    needs: pkgs-arm64-generic
+    strategy:
+      fail-fast: false
+      matrix:
+        hv: [xen, kvm]
+    runs-on: zededa-ubuntu-2204-arm64
+    timeout-minutes: 1440
+    steps:
+      - name: Clear repository
+        run: |
+          sudo rm -fr "$GITHUB_WORKSPACE" && mkdir "$GITHUB_WORKSPACE"
+          rm -fr ~/.linuxkit
+          docker system prune --all --force --volumes
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Login to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        with:
+          username: ${{ secrets.MIKEM_DOCKERHUB_ACCOUNT }}
+          password: ${{ secrets.MIKEM_DOCKERHUB_TOKEN }}
+      - name: Download linuxkit cache
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: linuxkit-cache-arm64-generic
+          path: ~/.linuxkit/cache
+      - name: Load tool images into docker
+        run: |
+          make cache-export-docker-load-all
+      - name: Set environment
+        env:
+          PR_ID: ${{ github.event.pull_request.number }}
+        run: |
+          COMMIT_ID=$(git describe --abbrev=8 --always)
+          echo "VERSION=0.0.0-pr$PR_ID-$COMMIT_ID" >> $GITHUB_ENV
+          echo "TAG=evebuild/pr:$PR_ID" >> $GITHUB_ENV
+          echo "ARCH=arm64" >> "$GITHUB_ENV"
+      - name: Build EVE ${{ matrix.hv }}-arm64-generic
+        run: |
+          make V=1 ROOTFS_VERSION="$VERSION" PLATFORM=generic HV=${{ matrix.hv }} ZARCH=arm64 eve
+      - name: Post eve build report
         run: |
           echo Disk usage
           df -h
@@ -206,6 +242,376 @@ jobs:
           free -m
           docker system df
           docker system df -v
+      - name: Export docker container
+        run: |
+          make cache-export ZARCH=arm64 IMAGE=lfedge/eve:$VERSION-${{ matrix.hv }} OUTFILE=eve-${{ matrix.hv }}-arm64-generic.tar IMAGE_NAME=$TAG-${{ matrix.hv }}-arm64
+      - name: Upload EVE ${{ matrix.hv }}-arm64-generic
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: eve-${{ matrix.hv }}-arm64-generic
+          path: eve-${{ matrix.hv }}-arm64-generic.tar
+      - name: Clean
+        if: ${{ always() }}
+        run: |
+          make clean
+          docker system prune -f -a --volumes
+          rm -rf ~/.linuxkit
+
+  # ════════════════════════════════════════════════════════════════════════
+  # Stage 2: riscv64 cross-build (needs amd64 tools from pkgs-amd64-generic)
+  # ════════════════════════════════════════════════════════════════════════
+
+  build-riscv64:
+    needs: pkgs-amd64-generic
+    runs-on: jumbo
+    timeout-minutes: 1440
+    steps:
+      - name: Starting Report
+        run: |
+          echo Git Ref: ${{ github.event.pull_request.head.ref }}
+          echo GitHub Event: ${{ github.event_name }}
+          echo "Build target: mini-riscv64-generic (cross-build)"
+          echo Disk usage
+          df -h
+          echo Memory
+          free -m
+      - name: Clear repository
+        run: |
+          sudo rm -fr "$GITHUB_WORKSPACE" && mkdir "$GITHUB_WORKSPACE"
+          rm -fr ~/.linuxkit
+          docker system prune --all --force --volumes
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Login to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        with:
+          username: ${{ secrets.MIKEM_DOCKERHUB_ACCOUNT }}
+          password: ${{ secrets.MIKEM_DOCKERHUB_TOKEN }}
+      - name: Ensure packages for cross-arch build
+        run: |
+          APT_INSTALL="sudo apt install -y binfmt-support qemu-user-static"
+          $APT_INSTALL || { sudo apt update && $APT_INSTALL ; }
+      # Restore amd64 tool images, load into docker, then clear cache
+      - name: Download amd64 linuxkit cache
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: linuxkit-cache-amd64-generic
+          path: ~/.linuxkit/cache
+      - name: Load amd64 tools into docker
+        run: |
+          make cache-export-docker-load-all
+          rm -rf ~/.linuxkit
+      # Build riscv64 packages
+      - name: Build riscv64 packages
+        run: |
+          make V=1 PRUNE=1 PLATFORM=generic ZARCH=riscv64 pkgs
+      # Build eve
+      - name: Set environment
+        env:
+          PR_ID: ${{ github.event.pull_request.number }}
+        run: |
+          COMMIT_ID=$(git describe --abbrev=8 --always)
+          echo "VERSION=0.0.0-pr$PR_ID-$COMMIT_ID" >> $GITHUB_ENV
+          echo "TAG=evebuild/pr:$PR_ID" >> $GITHUB_ENV
+          echo "ARCH=riscv64" >> "$GITHUB_ENV"
+      - name: Build EVE mini-riscv64-generic
+        run: |
+          make V=1 ROOTFS_VERSION="$VERSION" PLATFORM=generic HV=mini ZARCH=riscv64 eve
+      - name: Post eve build report
+        run: |
+          echo Disk usage
+          df -h
+          echo Memory
+          free -m
+          docker system df
+          docker system df -v
+      - name: Export docker container
+        run: |
+          make cache-export ZARCH=riscv64 IMAGE=lfedge/eve:$VERSION-mini OUTFILE=eve-mini-riscv64-generic.tar IMAGE_NAME=$TAG-mini-riscv64
+      - name: Upload EVE mini-riscv64-generic
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: eve-mini-riscv64-generic
+          path: eve-mini-riscv64-generic.tar
+      - name: Clean
+        if: ${{ always() }}
+        run: |
+          make clean
+          docker system prune -f -a --volumes
+          rm -rf ~/.linuxkit
+
+  # ════════════════════════════════════════════════════════════════════════
+  # Standalone: single-target builds (pkgs + eve in one job, no deps)
+  # ════════════════════════════════════════════════════════════════════════
+
+  build-arm64-nvidia-jp5:
+    runs-on: zededa-ubuntu-2204-arm64
+    timeout-minutes: 1440
+    steps:
+      - name: Starting Report
+        run: |
+          echo Git Ref: ${{ github.event.pull_request.head.ref }}
+          echo GitHub Event: ${{ github.event_name }}
+          echo "Build target: kvm-arm64-nvidia-jp5"
+          echo Disk usage
+          df -h
+          echo Memory
+          free -m
+      - name: Clear repository
+        run: |
+          sudo rm -fr "$GITHUB_WORKSPACE" && mkdir "$GITHUB_WORKSPACE"
+          rm -fr ~/.linuxkit
+          docker system prune --all --force --volumes
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Login to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        with:
+          username: ${{ secrets.MIKEM_DOCKERHUB_ACCOUNT }}
+          password: ${{ secrets.MIKEM_DOCKERHUB_TOKEN }}
+      - name: Build packages
+        run: |
+          make V=1 PRUNE=1 PLATFORM=nvidia-jp5 ZARCH=arm64 pkgs
+      - name: Load tool images into docker
+        run: |
+          make cache-export-docker-load-all
+      - name: Set environment
+        env:
+          PR_ID: ${{ github.event.pull_request.number }}
+        run: |
+          COMMIT_ID=$(git describe --abbrev=8 --always)
+          echo "VERSION=0.0.0-pr$PR_ID-$COMMIT_ID" >> $GITHUB_ENV
+          echo "TAG=evebuild/pr:$PR_ID" >> $GITHUB_ENV
+          echo "ARCH=arm64" >> "$GITHUB_ENV"
+      - name: Build EVE kvm-arm64-nvidia-jp5
+        run: |
+          make V=1 ROOTFS_VERSION="$VERSION" PLATFORM=nvidia-jp5 HV=kvm ZARCH=arm64 eve
+      - name: Post eve build report
+        run: |
+          echo Disk usage
+          df -h
+          echo Memory
+          free -m
+          docker system df
+          docker system df -v
+      - name: Export docker container
+        run: |
+          make cache-export ZARCH=arm64 IMAGE=lfedge/eve:$VERSION-kvm OUTFILE=eve-kvm-arm64-nvidia-jp5.tar IMAGE_NAME=$TAG-kvm-arm64
+      - name: Upload EVE kvm-arm64-nvidia-jp5
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: eve-kvm-arm64-nvidia-jp5
+          path: eve-kvm-arm64-nvidia-jp5.tar
+      - name: Clean
+        if: ${{ always() }}
+        run: |
+          make clean
+          docker system prune -f -a --volumes
+          rm -rf ~/.linuxkit
+
+  build-arm64-nvidia-jp6:
+    runs-on: zededa-ubuntu-2204-arm64
+    timeout-minutes: 1440
+    steps:
+      - name: Starting Report
+        run: |
+          echo Git Ref: ${{ github.event.pull_request.head.ref }}
+          echo GitHub Event: ${{ github.event_name }}
+          echo "Build target: kvm-arm64-nvidia-jp6"
+          echo Disk usage
+          df -h
+          echo Memory
+          free -m
+      - name: Clear repository
+        run: |
+          sudo rm -fr "$GITHUB_WORKSPACE" && mkdir "$GITHUB_WORKSPACE"
+          rm -fr ~/.linuxkit
+          docker system prune --all --force --volumes
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Login to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        with:
+          username: ${{ secrets.MIKEM_DOCKERHUB_ACCOUNT }}
+          password: ${{ secrets.MIKEM_DOCKERHUB_TOKEN }}
+      - name: Build packages
+        run: |
+          make V=1 PRUNE=1 PLATFORM=nvidia-jp6 ZARCH=arm64 pkgs
+      - name: Load tool images into docker
+        run: |
+          make cache-export-docker-load-all
+      - name: Set environment
+        env:
+          PR_ID: ${{ github.event.pull_request.number }}
+        run: |
+          COMMIT_ID=$(git describe --abbrev=8 --always)
+          echo "VERSION=0.0.0-pr$PR_ID-$COMMIT_ID" >> $GITHUB_ENV
+          echo "TAG=evebuild/pr:$PR_ID" >> $GITHUB_ENV
+          echo "ARCH=arm64" >> "$GITHUB_ENV"
+      - name: Build EVE kvm-arm64-nvidia-jp6
+        run: |
+          make V=1 ROOTFS_VERSION="$VERSION" PLATFORM=nvidia-jp6 HV=kvm ZARCH=arm64 eve
+      - name: Post eve build report
+        run: |
+          echo Disk usage
+          df -h
+          echo Memory
+          free -m
+          docker system df
+          docker system df -v
+      - name: Export docker container
+        run: |
+          make cache-export ZARCH=arm64 IMAGE=lfedge/eve:$VERSION-kvm OUTFILE=eve-kvm-arm64-nvidia-jp6.tar IMAGE_NAME=$TAG-kvm-arm64
+      - name: Upload EVE kvm-arm64-nvidia-jp6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: eve-kvm-arm64-nvidia-jp6
+          path: eve-kvm-arm64-nvidia-jp6.tar
+      - name: Clean
+        if: ${{ always() }}
+        run: |
+          make clean
+          docker system prune -f -a --volumes
+          rm -rf ~/.linuxkit
+
+  build-amd64-evaluation:
+    runs-on: jumbo
+    timeout-minutes: 1440
+    steps:
+      - name: Starting Report
+        run: |
+          echo Git Ref: ${{ github.event.pull_request.head.ref }}
+          echo GitHub Event: ${{ github.event_name }}
+          echo "Build target: kvm-amd64-evaluation"
+          echo Disk usage
+          df -h
+          echo Memory
+          free -m
+      - name: Clear repository
+        run: |
+          sudo rm -fr "$GITHUB_WORKSPACE" && mkdir "$GITHUB_WORKSPACE"
+          rm -fr ~/.linuxkit
+          docker system prune --all --force --volumes
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Login to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        with:
+          username: ${{ secrets.MIKEM_DOCKERHUB_ACCOUNT }}
+          password: ${{ secrets.MIKEM_DOCKERHUB_TOKEN }}
+      - name: Build packages
+        run: |
+          make V=1 PRUNE=1 PLATFORM=evaluation ZARCH=amd64 pkgs
+      - name: Load tool images into docker
+        run: |
+          make cache-export-docker-load-all
+      - name: Set environment
+        env:
+          PR_ID: ${{ github.event.pull_request.number }}
+        run: |
+          COMMIT_ID=$(git describe --abbrev=8 --always)
+          echo "VERSION=0.0.0-pr$PR_ID-$COMMIT_ID" >> $GITHUB_ENV
+          echo "TAG=evebuild/pr:$PR_ID" >> $GITHUB_ENV
+          echo "ARCH=amd64" >> "$GITHUB_ENV"
+      - name: Build EVE kvm-amd64-evaluation
+        run: |
+          make V=1 ROOTFS_VERSION="$VERSION" PLATFORM=evaluation HV=kvm ZARCH=amd64 eve
+      - name: Post eve build report
+        run: |
+          echo Disk usage
+          df -h
+          echo Memory
+          free -m
+          docker system df
+          docker system df -v
+      - name: Export docker container
+        run: |
+          make cache-export ZARCH=amd64 IMAGE=lfedge/eve:$VERSION-kvm OUTFILE=eve-kvm-amd64-evaluation.tar IMAGE_NAME=$TAG-kvm-amd64
+      - name: Upload EVE kvm-amd64-evaluation
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: eve-kvm-amd64-evaluation
+          path: eve-kvm-amd64-evaluation.tar
+      - name: Clean
+        if: ${{ always() }}
+        run: |
+          make clean
+          docker system prune -f -a --volumes
+          rm -rf ~/.linuxkit
+
+  build-amd64-k:
+    runs-on: jumbo
+    timeout-minutes: 1440
+    steps:
+      - name: Starting Report
+        run: |
+          echo Git Ref: ${{ github.event.pull_request.head.ref }}
+          echo GitHub Event: ${{ github.event_name }}
+          echo "Build target: k-amd64-generic"
+          echo Disk usage
+          df -h
+          echo Memory
+          free -m
+      - name: Clear repository
+        run: |
+          sudo rm -fr "$GITHUB_WORKSPACE" && mkdir "$GITHUB_WORKSPACE"
+          rm -fr ~/.linuxkit
+          docker system prune --all --force --volumes
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Login to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        with:
+          username: ${{ secrets.MIKEM_DOCKERHUB_ACCOUNT }}
+          password: ${{ secrets.MIKEM_DOCKERHUB_TOKEN }}
+      - name: Build packages
+        run: |
+          make V=1 PRUNE=1 PLATFORM=generic ZARCH=amd64 HV=k pkgs
+      - name: Load tool images into docker
+        run: |
+          make cache-export-docker-load-all
+      - name: Set environment
+        env:
+          PR_ID: ${{ github.event.pull_request.number }}
+        run: |
+          COMMIT_ID=$(git describe --abbrev=8 --always)
+          echo "VERSION=0.0.0-pr$PR_ID-$COMMIT_ID" >> $GITHUB_ENV
+          echo "TAG=evebuild/pr:$PR_ID" >> $GITHUB_ENV
+          echo "ARCH=amd64" >> "$GITHUB_ENV"
+      - name: Build EVE k-amd64-generic
+        run: |
+          make V=1 ROOTFS_VERSION="$VERSION" PLATFORM=generic HV=k ZARCH=amd64 eve
+      - name: Post eve build report
+        run: |
+          echo Disk usage
+          df -h
+          echo Memory
+          free -m
+          docker system df
+          docker system df -v
+      - name: Export docker container
+        run: |
+          make cache-export ZARCH=amd64 IMAGE=lfedge/eve:$VERSION-k OUTFILE=eve-k-amd64-generic.tar IMAGE_NAME=$TAG-k-amd64
+      - name: Upload EVE k-amd64-generic
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: eve-k-amd64-generic
+          path: eve-k-amd64-generic.tar
       - name: Clean
         if: ${{ always() }}
         run: |
