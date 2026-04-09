@@ -65,7 +65,7 @@ RUN llvm-strip "/app/target/$CARGO_BUILD_TARGET/release/vector"
 RUN cargo sbom > sbom.spdx.json
 RUN cp "/app/target/$CARGO_BUILD_TARGET/release/vector" /app/target/
 
-FROM lfedge/eve-alpine:a6a101a68aa7269506dbcb8a0a45c0d69e4f851b AS runtime
+FROM lfedge/eve-alpine:530b791100e08d3e89ca2236fe05a6d072b26c43 AS runtime
 ENV PKGS="inotify-tools"
 RUN eve-alpine-deploy.sh
 
