@@ -8,10 +8,10 @@ ARG BUILD_PKGS_BASE="git gcc linux-headers libc-dev make linux-pam-dev m4 findut
                      libintl libuuid libtirpc libblkid libcrypto3 zlib tar"
 
 # we use the same image in several places
-ARG EVE_ALPINE_IMAGE=lfedge/eve-alpine:a6a101a68aa7269506dbcb8a0a45c0d69e4f851b
+ARG EVE_ALPINE_IMAGE=lfedge/eve-alpine:530b791100e08d3e89ca2236fe05a6d072b26c43
 
-FROM lfedge/eve-uefi:1a89ea30ce9057c50ce6650f44bd5b89716e6dd3 AS uefi-build
-FROM lfedge/eve-dom0-ztools:b7524a395418e34f7e7238d50ac34ce3e583dbb8 AS zfs
+FROM lfedge/eve-uefi:6814b6bc240ad879707c8e83360ca77be795a525 AS uefi-build
+FROM lfedge/eve-dom0-ztools:00e9c347893321f383bab9460ddb8679097d4d90 AS zfs
 RUN mkdir /out
 # copy zfs-related files from dom0-ztools using prepared list of files
 RUN while read -r x; do \
@@ -33,15 +33,11 @@ ARG BUILD_PKGS_BASE
 RUN BUILD_PKGS="${BUILD_PKGS_BASE}" eve-alpine-deploy.sh
 
 # hadolint ignore=DL3029
-FROM --platform=${BUILDPLATFORM} lfedge/eve-cross-compilers:b6ce78e9a973a15c10038b95d35abb8f1c8fca64 AS cross-compilers
+FROM --platform=${BUILDPLATFORM} lfedge/eve-cross-compilers:gcc-14.2.0-alpine-3.22-40a25095 AS cross-compilers
 
-# will use several packages from target arch and copy them to sysroot
+# pull target-arch eve-alpine for its mirror (no RUN = no QEMU needed)
 # hadolint ignore=DL3006
-FROM ${EVE_ALPINE_IMAGE} AS cross-compile-libs
-ENV PKGS musl-dev libgcc libintl libuuid libtirpc libblkid linux-headers
-RUN eve-alpine-deploy.sh
-# we need zfs files during build
-COPY --from=zfs / /
+FROM ${EVE_ALPINE_IMAGE} AS target-alpine
 
 # adjust EVE_TARGET_ARCH for cross-compiler
 FROM build-cross AS build-cross-target-arm64
@@ -51,11 +47,18 @@ ENV EVE_TARGET_ARCH=x86_64
 
 # hadolint ignore=DL3006
 FROM build-cross-target-${TARGETARCH} AS build-cross-target
-ENV CROSS_COMPILE_ENV="${EVE_TARGET_ARCH}"-alpine-linux-musl-
-COPY --from=cross-compilers /packages /packages
-# hadolint ignore=DL3018
-RUN apk add --no-cache --allow-untrusted -X /packages build-base-"${EVE_TARGET_ARCH}"
-COPY --from=cross-compile-libs /out/ /usr/"${EVE_TARGET_ARCH}"-alpine-linux-musl/
+ENV CROSS_COMPILE_ENV="${EVE_TARGET_ARCH}"-linux-musl-
+# install musl.cc toolchain
+COPY --from=cross-compilers /toolchains/"${EVE_TARGET_ARCH}"-linux-musl-cross /opt/cross
+ENV PATH="/opt/cross/bin:${PATH}"
+# extract target-arch sysroot from eve-alpine mirror (no QEMU)
+COPY --from=target-alpine /mirror /target-mirror
+RUN EVE_TARGET_ARCH="${EVE_TARGET_ARCH}" \
+    PKGS="musl-dev libgcc libintl libuuid libtirpc libblkid linux-headers" \
+    eve-cross-sysroot.sh
+# merge sysroot into toolchain sysroot + add ZFS files
+RUN cp -a /out/* /opt/cross/"${EVE_TARGET_ARCH}"-linux-musl/
+COPY --from=zfs /out/ /opt/cross/"${EVE_TARGET_ARCH}"-linux-musl/
 
 # cross-compilers
 FROM build-cross-target AS target-arm64-build-amd64
@@ -148,9 +151,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build if [ "${TEST_TOOLS}" = "y" ]
     GOBIN=/final/opt/ GOFLAGS="" go install gotest.tools/gotestsum@v1.7.0; \
 fi
 
-FROM lfedge/eve-fscrypt:f5808e5982cc0042adfbdc36e9e5df237540cdca AS fscrypt
-FROM lfedge/eve-dnsmasq:3f17c7ab5bfeec6ff7134b61451d033bc2cd10bf AS dnsmasq
-FROM lfedge/eve-gpt-tools:8e3656be68b35662ba3eba09d5a5959afb58e89a AS gpttools
+FROM lfedge/eve-fscrypt:396adbacb24da408b21524257d0c866602d47ae9 AS fscrypt
+FROM lfedge/eve-dnsmasq:6d501e82280a87109064c2720e30c3c8cc4b845e AS dnsmasq
+FROM lfedge/eve-gpt-tools:08f7bbef3b9763ab5a3b6614535caf474fa3b273 AS gpttools
 
 # collector collects everything together and then does any processing like stripping binaries.
 # We use this interim "collector" so that we can do processing.

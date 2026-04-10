@@ -8,9 +8,9 @@
 # has a fast path for stack unwinding. This also happens
 # to be a perfect place to put any other kind of debug info
 # into the package: see abuild/etc/abuild.conf.
-FROM lfedge/eve-recovertpm:bd766d518e4d158c95775d6c0922f04694638c01 AS recovertpm
-FROM lfedge/eve-bpftrace:ac4647a62438ecf5b0430f38cd3fee6f287c7c47 AS bpftrace
-FROM lfedge/eve-alpine:7b892c4653d567eb3b6a306064c3bc7fc14f6bab AS build
+FROM lfedge/eve-recovertpm:b51a011fc666c434d6a7745d32850a2444061789 AS recovertpm
+FROM lfedge/eve-bpftrace:30116eafa35b97010dfbb12b27f5668fac855842 AS bpftrace
+FROM lfedge/eve-alpine:530b791100e08d3e89ca2236fe05a6d072b26c43 AS build
 ENV BUILD_PKGS="abuild curl tar make linux-headers patch g++ git gcc gpg gettext gettext-static ncurses-dev jq autoconf openssl-dev zlib-dev zlib-static gpg-agent"
 # Feel free to add additional packages here, but be aware that
 # EVE's rootfs image can be no larger than 300Mb (and don't
@@ -50,10 +50,12 @@ COPY lshw/ lshw-B.${LSHW_VERSION}/
 
 WORKDIR /lshw-B.${LSHW_VERSION}
 
+# hadolint ignore=SC2046
 RUN for patch in *.patch; do \
     patch -p1 < "$patch"; \
     done && \
-    make -C src VERSION=B.${LSHW_VERSION} NO_VERSION_CHECK=1  RPM_OPT_FLAGS=-DNONLS ZLIB=1 GZIP="busybox gzip -n9" static && \
+    make -j$(nproc) -C src VERSION=B.${LSHW_VERSION} NO_VERSION_CHECK=1 RPM_OPT_FLAGS=-DNONLS ZLIB=1 core && \
+    make -j$(nproc) -C src VERSION=B.${LSHW_VERSION} NO_VERSION_CHECK=1 RPM_OPT_FLAGS=-DNONLS ZLIB=1 GZIP="busybox gzip -n9" static && \
     cp src/lshw-static /out/usr/bin/lshw && strip /out/usr/bin/lshw
 
 # building hexedit
@@ -61,7 +63,8 @@ WORKDIR /tmp/hexedit/hexedit-1.5
 # hadolint ignore=DL4006
 ADD https://github.com/pixel/hexedit/archive/refs/tags/1.5.tar.gz ../1.5.tar.gz
 RUN tar -C .. -xzvf ../1.5.tar.gz
-RUN ./autogen.sh && ./configure && make DESTDIR=/out install
+# hadolint ignore=SC2046
+RUN ./autogen.sh && ./configure && make -j$(nproc) && make DESTDIR=/out install
 
 # tweaking various bit
 WORKDIR /out

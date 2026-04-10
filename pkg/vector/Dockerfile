@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Zededa, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-ARG RUST_VERSION=lfedge/eve-rust:1.85.1-2
+ARG RUST_VERSION=lfedge/eve-rust:1.93.1
 ARG VECTOR_FEATURES='--no-default-features --features \
 sources-socket,\
 sources-internal_metrics,\
@@ -41,7 +41,7 @@ RUN echo "Cargo target: $CARGO_BUILD_TARGET"
 # building the final image
 FROM toolchain AS builder
 ARG VECTOR_FEATURES
-ADD https://github.com/vectordotdev/vector.git#v0.47.0 /app
+ADD https://github.com/vectordotdev/vector.git#v0.54.0 /app
 # we have our own options, so remove the default cargo config
 # if this doesn't help then remove everything leaving only
 # the files from .dockerignore except rust-toolchain.toml
@@ -53,16 +53,19 @@ ENV RUSTFLAGS="\
     -C opt-level=z \
     -C lto=fat \
     -C embed-bitcode=yes \
-    -C codegen-units=1"
+    -C codegen-units=1 \
+    -C link-arg=--ld-path=/usr/bin/mold \
+    -C link-arg=--target=$CARGO_BUILD_TARGET"
+
 RUN cargo build --release $VECTOR_FEATURES
 
 # strip unneeded symbols
-RUN strip "/app/target/$CARGO_BUILD_TARGET/release/vector"
+RUN llvm-strip "/app/target/$CARGO_BUILD_TARGET/release/vector"
 
 RUN cargo sbom > sbom.spdx.json
 RUN cp "/app/target/$CARGO_BUILD_TARGET/release/vector" /app/target/
 
-FROM lfedge/eve-alpine:a6a101a68aa7269506dbcb8a0a45c0d69e4f851b AS runtime
+FROM lfedge/eve-alpine:530b791100e08d3e89ca2236fe05a6d072b26c43 AS runtime
 ENV PKGS="inotify-tools"
 RUN eve-alpine-deploy.sh
 
