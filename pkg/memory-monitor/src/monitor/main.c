@@ -1,6 +1,7 @@
 // Copyright (c) 2024 Zededa, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+// FORCE REBUILD
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
