@@ -27,30 +27,29 @@ KUBE_ROOT_ZFS="/dev/zvol/persist/etcd-storage"
 KUBE_ROOT_MOUNTPOINT="/var/lib"
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml # for virtctl command
 
-# shellcheck source=pkg/kube/lib/config.sh
+# shellcheck source=/dev/null
 . /usr/bin/config.sh
-# shellcheck source=pkg/kube/pubsub.sh
+# shellcheck source=/dev/null
 . /usr/bin/pubsub.sh
-# shellcheck source=pkg/kube/lib/config.sh
+# shellcheck source=/dev/null
 . /usr/bin/kube/config.sh
-# shellcheck source=pkg/kube/descheduler-utils.sh
+# shellcheck source=/dev/null
 . /usr/bin/descheduler-utils.sh
-# shellcheck source=pkg/kube/longhorn-utils.sh
+# shellcheck source=/dev/null
 . /usr/bin/longhorn-utils.sh
-# Source the utility script, Dockerfile copies the script to /usr/bin
 # shellcheck source=/dev/null
 . /usr/bin/cluster-utils.sh
-# shellcheck source=pkg/kube/cluster-update.sh
+# shellcheck source=/dev/null
 . /usr/bin/cluster-update.sh
-# shellcheck source=pkg/kube/registration-utils.sh
+# shellcheck source=/dev/null
 . /usr/bin/registration-utils.sh
-# shellcheck source=pkg/kube/utils.sh
+# shellcheck source=/dev/null
 . /usr/bin/utils.sh
-# shellcheck source=pkg/kube/kubevirt-utils.sh
+# shellcheck source=/dev/null
 . /usr/bin/kubevirt-utils.sh
-# shellcheck source=pkg/kube/tie-breaker-utils.sh
+# shellcheck source=/dev/null
 . /usr/bin/tie-breaker-utils.sh
-# shellcheck source=pkg/kube/vnc-proxy.sh
+# shellcheck source=/dev/null
 . /usr/bin/vnc-proxy.sh
 
 # get cluster IP address from the cluster status file
@@ -781,7 +780,7 @@ check_cluster_config_change() {
 
             Config_cluster_type_get
             cluster_type=$?
-            if [ $cluster_type -eq $CLUSTER_TYPE_K3S_BASE ]; then
+            if [ "$cluster_type" -eq "$CLUSTER_TYPE_K3S_BASE" ]; then
                 # Hold on, don't apply yet, complete conversion to base mode first
                 if [ ! -f /var/lib/base-k3s-mode ]; then
                         uninstall_components
@@ -865,7 +864,7 @@ check_cluster_config_change() {
     # Registration can exist in multiple types, if in base mode, wait for uninstall
     Config_cluster_type_get
     cluster_type=$?
-    if [ $cluster_type -eq $CLUSTER_TYPE_K3S_BASE ]; then
+    if [ "$cluster_type" -eq "$CLUSTER_TYPE_K3S_BASE" ]; then
         # Hold on, don't apply yet, complete conversion to base mode first
         if [ -e /var/lib/base-k3s-mode ]; then
                 Registration_CheckApply
@@ -1063,15 +1062,15 @@ EOF
 
     Config_cluster_type_get
     cluster_type=$?
-    if [ $cluster_type -eq $CLUSTER_TYPE_UNSPECIFIED ]; then
+    if [ "$cluster_type" -eq "$CLUSTER_TYPE_UNSPECIFIED" ]; then
             if ! Registration_Applied; then
                    cp "${KUBE_MANIFESTS_SRC_DIR}/${K3S_CONFIG_FILE_DISABLE_LOCAL_PATH}" "${K3S_CONFIG_DIR}/${K3S_CONFIG_FILE_DISABLE_LOCAL_PATH}"
             else
                    rm "${K3S_CONFIG_DIR}/${K3S_CONFIG_FILE_DISABLE_LOCAL_PATH}"
             fi
-    elif [ $cluster_type -eq $CLUSTER_TYPE_REPLICATED_STORAGE ]; then
+    elif [ "$cluster_type" -eq "$CLUSTER_TYPE_REPLICATED_STORAGE" ]; then
             cp "${KUBE_MANIFESTS_SRC_DIR}/${K3S_CONFIG_FILE_DISABLE_LOCAL_PATH}" "${K3S_CONFIG_DIR}/${K3S_CONFIG_FILE_DISABLE_LOCAL_PATH}"
-    elif [ $cluster_type -eq $CLUSTER_TYPE_K3S_BASE ]; then
+    elif [ "$cluster_type" -eq "$CLUSTER_TYPE_K3S_BASE" ]; then
             rm -f "${K3S_CONFIG_DIR}/${K3S_CONFIG_FILE_DISABLE_LOCAL_PATH}"
     else
             logmsg "possible unhandled cluster type $cluster_type in (provision_cluster_config_file)"
@@ -1400,7 +1399,6 @@ if [ ! -f /var/lib/all_components_initialized ]; then
                 continue
         fi
 
-
         if [ -f /var/lib/longhorn_initialized ]; then
                 sleep 5
                 logmsg "stop the k3s server and wait for copy /var/lib"
@@ -1425,7 +1423,7 @@ else
         # cases where current k3s cannot start
         Config_cluster_type_get
         cluster_type=$?
-        if [ $cluster_type -eq $CLUSTER_TYPE_REPLICATED_STORAGE ]; then
+        if [ "$cluster_type" -eq "$CLUSTER_TYPE_REPLICATED_STORAGE" ]; then
                 # Only ReplicatedStorage mode supports this method of updating k3s
                 # Base mode receives this config from the server specified in registration manifest.
                 Update_CheckNodeComponents || {
@@ -1510,7 +1508,7 @@ else
                         if [ -e "${KUBE_MANIFESTS_DIR}/" ]; then
                                 Config_cluster_type_get
                                 cluster_type=$?
-                                if [ $cluster_type -eq $CLUSTER_TYPE_UNSPECIFIED ]; then
+                                if [ "$cluster_type" -eq "$CLUSTER_TYPE_UNSPECIFIED" ]; then
                                         if ! Registration_Applied; then
                                                 # Replicated Storage wants extra storage classes
                                                 if [ ! -e "${KUBE_MANIFESTS_DIR}/storage-classes.yaml" ]; then
@@ -1521,17 +1519,15 @@ else
                                                 cleanup_storageclasses
                                                 longhorn_post_install_config_clean
                                         fi
-                                elif [ $cluster_type -eq $CLUSTER_TYPE_REPLICATED_STORAGE ]; then
+                                elif [ "$cluster_type" -eq "$CLUSTER_TYPE_REPLICATED_STORAGE" ]; then
                                         # Replicated Storage wants extra storage classes
                                         if [ ! -e "${KUBE_MANIFESTS_DIR}/storage-classes.yaml" ]; then
                                                 cp /etc/k3s-manifests/storage-classes.yaml "${KUBE_MANIFESTS_DIR}/storage-classes.yaml"
                                         fi
                                         # EVE only manages cluster comp upgrades in this cluster mode
                                         # Keep in this loop (k3s running, longhorn ready)
-                                        if Update_CheckClusterComponents; then
-                                                Update_RunDeschedulerOnBoot
-                                        fi
-                                elif [ $cluster_type -eq $CLUSTER_TYPE_K3S_BASE ]; then
+                                        Update_CheckClusterComponents
+                                elif [ "$cluster_type" -eq "$CLUSTER_TYPE_K3S_BASE" ]; then
                                         # Base Mode does not want extra pre-installed storage classes
                                         cleanup_storageclasses
                                         longhorn_post_install_config_clean
@@ -1543,13 +1539,12 @@ else
 
                 Config_cluster_type_get
                 cluster_type=$?
-                if [ $cluster_type -eq $CLUSTER_TYPE_REPLICATED_STORAGE ]; then
+                if [ "$cluster_type" -eq "$CLUSTER_TYPE_REPLICATED_STORAGE" ]; then
                         longhorn_post_install_config
                         # Upgrades declared via EVE baseOS updates
                         if ! Update_CheckClusterComponents; then
                                 continue
                         fi
-                        Update_RunDeschedulerOnBoot
                 fi
         fi
 fi

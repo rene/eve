@@ -732,6 +732,10 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 			// the device is powered off. Next config refresh will see app is gone and domainmgr will not do anything.
 			// But kubernetes thinks app is still running and starts. So its safe to delete all replica sets at the start
 			// on single node installs.
+			if err := kubeapi.EnsureVMsDeschedulerAnnotated(log); err != nil {
+				log.Errorf("domainmgr: EnsureVMsDeschedulerAnnotated: %v", err)
+			}
+
 			clusterMode := kubeapi.IsClusterMode(domainCtx.ps,
 				log, agentName)
 
