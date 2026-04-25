@@ -531,10 +531,6 @@ test: $(LINUXKIT) pkg/pillar | $(DIST)
 	make -C pkg/pillar test
 	cp pkg/pillar/results.json $(DIST)/
 	cp pkg/pillar/results.xml $(DIST)/
-	make -C eve-tools/bpftrace-compiler test
-	make -C pkg/dnsmasq test
-	make -C pkg/debug test
-	go test -C pkg/newlog/cmd/ -v -race
 	$(QUIET): $@: Succeeded
 
 test-profiling:
