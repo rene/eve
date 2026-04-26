@@ -167,3 +167,4 @@ via **HTTP GET**.
 | Transport                | HTTP (no TLS)                   | HTTP or HTTPS (depending on LOC implementation) |
 | Signing                  | None (only token used for auth) | Config signed by the controller                 |
 | Local ops support        | Yes                             | Yes (carried inside `CompoundConfig`)           |
+

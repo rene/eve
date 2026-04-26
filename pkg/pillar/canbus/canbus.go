@@ -20,6 +20,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+
+const FORCE_REVIVE = 1
+
 // Types of CAN interfaces
 const (
 	// LinkVCAN Virtual CAN interface type
@@ -67,6 +70,8 @@ type CAN struct {
 	TDCO               uint32
 	TDCF               uint32
 }
+
+// Test a typo: uknown
 
 // Attrs returns Link attributes
 func (d CAN) Attrs() *netlink.LinkAttrs {
