@@ -41,21 +41,7 @@ jobs:
       - name: Force fetch annotated tags (workaround)
         run: |
           git fetch --force --tags
-      - name: Build packages
-        run: |
-          SUCCESS=
-          for i in 1 2 3; do
-            if make -e V=1 HV=kvm ZARCH=amd64 PLATFORM=generic LINUXKIT_PKG_TARGET=build pkgs; then
-              SUCCESS=true
-              break
-            else
-              docker rmi -f $(docker image ls -q) || :
-              docker system prune -f -a || :
-              docker rm -f $(docker ps -aq) && docker volume rm -f $(docker volume ls -q) || :
-            fi
-          done
-          if [ -z "$SUCCESS" ]; then echo "::error::failed to build packages" && exit 1; fi
-      - name: Push packages
+      - name: Build and push packages
         run: |
           SUCCESS=
           for i in 1 2 3; do
@@ -68,7 +54,7 @@ jobs:
               docker rm -f $(docker ps -aq) && docker volume rm -f $(docker volume ls -q) || :
             fi
           done
-          if [ -z "$SUCCESS" ]; then echo "::error::failed to push packages" && exit 1; fi
+          if [ -z "$SUCCESS" ]; then echo "::error::failed to build and push packages" && exit 1; fi
       - name: Post package report
         run: |
           echo Disk usage
@@ -104,21 +90,7 @@ jobs:
       - name: Force fetch annotated tags (workaround)
         run: |
           git fetch --force --tags
-      - name: Build packages
-        run: |
-          SUCCESS=
-          for i in 1 2 3; do
-            if make -e V=1 HV=kvm ZARCH=arm64 PLATFORM=generic LINUXKIT_PKG_TARGET=build pkgs; then
-              SUCCESS=true
-              break
-            else
-              docker rmi -f $(docker image ls -q) || :
-              docker system prune -f -a || :
-              docker rm -f $(docker ps -aq) && docker volume rm -f $(docker volume ls -q) || :
-            fi
-          done
-          if [ -z "$SUCCESS" ]; then echo "::error::failed to build packages" && exit 1; fi
-      - name: Push packages
+      - name: Build and push packages
         run: |
           SUCCESS=
           for i in 1 2 3; do
@@ -131,7 +103,7 @@ jobs:
               docker rm -f $(docker ps -aq) && docker volume rm -f $(docker volume ls -q) || :
             fi
           done
-          if [ -z "$SUCCESS" ]; then echo "::error::failed to push packages" && exit 1; fi
+          if [ -z "$SUCCESS" ]; then echo "::error::failed to build and push packages" && exit 1; fi
       - name: Post package report
         run: |
           echo Disk usage
@@ -159,6 +131,7 @@ jobs:
     if: github.event.repository.full_name == 'rene/eve'
     needs: [pkgs-amd64, pkgs-arm64]
     runs-on: zededa-ubuntu-2204
+    timeout-minutes: 1440
     strategy:
       fail-fast: false
       matrix:
@@ -167,48 +140,62 @@ jobs:
           - arch: amd64
             hv: kvm
             platform: "generic"
+            os: zededa-ubuntu-2204
           - arch: amd64
             hv: xen
             platform: "generic"
+            os: zededa-ubuntu-2204
           - arch: amd64
             hv: k
             platform: "generic"
+            os: zededa-ubuntu-2204
           - arch: amd64
             hv: kvm
             platform: "evaluation"
+            os: zededa-ubuntu-2204
           # arm64 generic
           - arch: arm64
             hv: kvm
             platform: "generic"
+            os: zededa-ubuntu-2204-arm64
           - arch: arm64
             hv: xen
             platform: "generic"
+            os: zededa-ubuntu-2204-arm64
           - arch: arm64
             hv: k
             platform: "generic"
+            os: zededa-ubuntu-2204-arm64
           # arm64 nvidia
           - arch: arm64
             hv: kvm
             platform: "nvidia-jp5"
+            os: zededa-ubuntu-2204-arm64
           - arch: arm64
             hv: kvm
             platform: "nvidia-jp6"
+            os: zededa-ubuntu-2204-arm64
           - arch: arm64
             hv: kvm
             platform: "nvidia-jp7"
+            os: zededa-ubuntu-2204-arm64
           - arch: arm64
             hv: k
             platform: "nvidia-jp5"
+            os: zededa-ubuntu-2204-arm64
           - arch: arm64
             hv: k
             platform: "nvidia-jp6"
+            os: zededa-ubuntu-2204-arm64
           - arch: arm64
             hv: k
             platform: "nvidia-jp7"
-          # riscv64
+            os: zededa-ubuntu-2204-arm64
+          # riscv64 (cross-build on amd64 runner via qemu)
           - arch: riscv64
             hv: mini
             platform: "generic"
+            os: zededa-ubuntu-2204
 
     steps:
       - name: Checkout
@@ -220,41 +207,21 @@ jobs:
         run: |
           APT_INSTALL="sudo apt install -y binfmt-support qemu-user-static"
           $APT_INSTALL || { sudo apt update && $APT_INSTALL ; }
-      - name: Build remaining packages
-        uses: ./.github/actions/run-make
-        with:
-          command: "V=1 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=build pkgs"
-          dockerhub-token: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
-          dockerhub-account: ${{ secrets.DOCKERHUB_PULL_USER }}
-          clean: false
-      - name: Push remaining packages
+      - name: Build and push remaining packages
         uses: ./.github/actions/run-make
         with:
           command: "V=1 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=push PRUNE=1 pkgs"
-          dockerhub-token: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
-          dockerhub-account: ${{ secrets.RELEASE_DOCKERHUB_ACCOUNT }}
           clean: false
-      - name: Build EVE
-        uses: ./.github/actions/run-make
-        with:
-          command: "V=1 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=build eve"
-          dockerhub-token: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
-          dockerhub-account: ${{ secrets.DOCKERHUB_PULL_USER }}
-          clean: false
-      - name: Push EVE
+      - name: Build and push EVE
         uses: ./.github/actions/run-make
         with:
           command: "V=1 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=push eve"
-          dockerhub-token: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
-          dockerhub-account: ${{ secrets.RELEASE_DOCKERHUB_ACCOUNT }}
           clean: false
       - name: Collect and push SBOM and sources
         uses: ./.github/actions/run-make
         if: matrix.arch != 'riscv64'
         with:
           command: "V=1 HV=${{ matrix.hv }} ZARCH=${{ matrix.arch }} PLATFORM=${{ matrix.platform }} LINUXKIT_PKG_TARGET=push sbom collected_sources compare_sbom_collected_sources publish_sources"
-          dockerhub-token: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
-          dockerhub-account: ${{ secrets.RELEASE_DOCKERHUB_ACCOUNT }}
           clean: false
       - name: Clean
         if: ${{ always() }}
@@ -280,8 +247,6 @@ jobs:
       - uses: ./.github/actions/run-make
         with:
           command: "V=1 LINUXKIT_PKG_TARGET=manifest pkgs"
-          dockerhub-token: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
-          dockerhub-account: ${{ secrets.RELEASE_DOCKERHUB_ACCOUNT }}
 
   trigger_assets:
     if: ${{ (startsWith(github.ref, 'refs/tags/')) && (github.event.repository.full_name == 'rene/eve') }}
