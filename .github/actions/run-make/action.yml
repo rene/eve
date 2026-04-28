@@ -7,11 +7,13 @@ inputs:
     required: true
     type: string
   dockerhub-token:
-    required: true
+    required: false
     type: string
+    default: ''
   dockerhub-account:
-    required: true
+    required: false
     type: string
+    default: ''
   clean:
     required: false
     type: boolean
