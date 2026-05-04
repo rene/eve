@@ -96,6 +96,9 @@ RUN mkdir -p /etc/nvidia-container-runtime
 COPY nvidia-container-runtime/config.toml /etc/nvidia-container-runtime
 COPY nvidia-container-runtime/nvidia-device-plugin-18.0.yml /etc/k3s-manifests/
 
+COPY sriov/sriov-cni-daemonset.yaml /etc/k3s-manifests/
+COPY sriov/sriov-device-plugin.yaml /etc/k3s-manifests/
+
 ARG TARGETARCH
 
 # Actual k3s install and config happens when this container starts during EVE bootup, look at cluster-init.sh

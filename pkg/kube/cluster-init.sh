@@ -1267,9 +1267,34 @@ if [ -f /var/lib/base-k3s-mode ]; then
         install_kubevirt=0
 fi
 
+# install_sriov_manifests installs the sriov-cni and sriov-network-device-plugin
+# DaemonSets when SR-IOV-capable hardware is present.
+#
+# Detection uses /sys/bus/pci/devices/*/sriov_numvfs because /sys/class/net is
+# per-network-namespace — this script runs in the kube container, whose netns
+# typically does not include the host's NICs, so /sys/class/net wouldn't see
+# them.  /sys/bus/pci is namespace-independent and exposes sriov_numvfs for any
+# PCI device with SR-IOV capability regardless of which netns owns the netdev.
+#
+# Idempotent: cp -u only overwrites when the source file is newer, so repeated
+# calls from the main loop are cheap and pick up new manifests on EVE upgrades
+# without requiring a cluster re-init.
+install_sriov_manifests() {
+        [ -d "${KUBE_MANIFESTS_DIR}" ] || return
+        ls /sys/bus/pci/devices/*/sriov_numvfs >/dev/null 2>&1 || return
+        cp -u /etc/k3s-manifests/sriov-cni-daemonset.yaml \
+              "${KUBE_MANIFESTS_DIR}/" 2>/dev/null || true
+        cp -u /etc/k3s-manifests/sriov-device-plugin.yaml \
+              "${KUBE_MANIFESTS_DIR}/" 2>/dev/null || true
+}
+
 #Forever loop every 15 secs
 while true;
 do
+        # Re-apply optional manifests on every iteration so EVE upgrades pick
+        # them up without forcing a cluster re-init (the
+        # all_components_initialized guard would otherwise skip the copy below).
+        install_sriov_manifests
 if [ ! -f /var/lib/all_components_initialized ]; then
         if [ ! -f /var/lib/k3s_installed_unpacked ]; then
                 #
@@ -1372,6 +1397,9 @@ if [ ! -f /var/lib/all_components_initialized ]; then
               logmsg "NVIDIA platform, copying the manifest files to ${KUBE_MANIFESTS_DIR}"
               cp /etc/k3s-manifests/nvidia-device-plugin-18.0.yml "${KUBE_MANIFESTS_DIR}/"
         fi
+        # SR-IOV manifests are installed by install_sriov_manifests() called
+        # from the main loop on every iteration (idempotent), so they are
+        # picked up on upgrades without requiring a re-init of the cluster.
 
         #
         # Longhorn
