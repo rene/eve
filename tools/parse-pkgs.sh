@@ -152,6 +152,7 @@ UDEV_TAG=${UDEV_TAG}
 INSTALLER_TAG=${INSTALLER_TAG}
 MONITOR_TAG=${MONITOR_TAG}
 OPTEE_CLIENT_TAG=${OPTEE_CLIENT_TAG}
+EXTERNAL_BOOT_IMAGE_TAG=${EXTERNAL_BOOT_IMAGE_TAG}
 EOF
 }
 
@@ -198,6 +199,8 @@ UDEV_TAG=$(linuxkit_tag pkg/udev)
 INSTALLER_TAG=$(linuxkit_tag pkg/installer)
 MONITOR_TAG=$(linuxkit_tag pkg/monitor)
 OPTEE_CLIENT_TAG=$(linuxkit_tag pkg/optee-client)
+# Only built when HV=k; listed here so populate-registry.sh / mirror tools see it.
+EXTERNAL_BOOT_IMAGE_TAG=$(linuxkit_tag pkg/external-boot-image)
 
 # Synthetic tags: the following tags are based on hashing
 # the contents of all the Dockerfile.in that we can find.
