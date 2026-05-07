@@ -130,7 +130,7 @@ jobs:
   eve:
     if: github.event.repository.full_name == 'rene/eve'
     needs: [pkgs-amd64, pkgs-arm64]
-    runs-on: ${{ matrix.os }}
+    runs-on: zededa-ubuntu-2204
     timeout-minutes: 1440
     strategy:
       fail-fast: false
