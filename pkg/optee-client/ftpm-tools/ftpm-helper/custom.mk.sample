@@ -1,0 +1,33 @@
+# Set in make
+
+
+ARENA = /mnt/volumes/ftpm_volume/projects/zedata
+
+#CROSS_COMPILE=$(ARENA)/toolchains/musl/arm-linux-musleabi-cross/bin/arm-linux-musleabi-
+
+CROSS_COMPILE = $(ARENA)/toolchains/gcc-bootlin-9.3.0_aarch64-buildroot-linux-gnu/bin/aarch64-linux-
+OPTEE_CLIENT_EXPORT = $(ARENA)/optee/host/usr
+
+O=output
+
+
+# Uncomment the following if the TEE has the fTPM helper PTA.
+# This is necessary for early TAs, because the helper PTA informs
+# when RPC calls to linux are available.  It is also necessary for
+# activation.
+USE_FTPM_PTA = y
+
+
+ifeq ($(FTPM_TEST_MODE),y)
+# Uncomment the following to test activation.
+# Requires that USE_FTPM_PTA be enabled.
+SEQ_FTPM_TEST = y
+
+# Uncomment the following to test activation.
+# Requires that SEQ_FTPM_TEST be enabled.
+JETSON_FTPM_HELPER_INJECT_SN = y
+endif
+
+# Uncomment the following to enable AI protection
+# Requires CLR_ASN1_DIR to point to the clr_asn1 library
+#CFG_AI_PROTECT = y

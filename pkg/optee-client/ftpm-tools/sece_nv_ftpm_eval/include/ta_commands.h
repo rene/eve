@@ -1,0 +1,11 @@
+#ifndef _TA_COMMANDS_H
+#define _TA_COMMANDS_H
+
+// commands
+#define SEQ_FTPMEVAL_PTA_CMD_INGEST   1
+#define SEQ_FTPMEVAL_PTA_CMD_WIPE     2
+#define SEQ_FTPMEVAL_PTA_CMD_STATUS   3
+#define SEQ_FTPMEVAL_PTA_CMD_UPDATE   4
+
+
+#endif

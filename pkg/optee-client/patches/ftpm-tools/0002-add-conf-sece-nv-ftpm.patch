@@ -1,0 +1,6 @@
+diff -uprN a/sece_nv_ftpm_eval/conf.mk b/sece_nv_ftpm_eval/conf.mk
+--- a/sece_nv_ftpm_eval/conf.mk	1970-01-01 01:00:00.000000000 +0100
++++ b/sece_nv_ftpm_eval/conf.mk	2026-05-08 12:58:50.104652421 +0200
+@@ -0,0 +1,2 @@
++# TC setup
++export TEEC_EXPORT = /out/usr

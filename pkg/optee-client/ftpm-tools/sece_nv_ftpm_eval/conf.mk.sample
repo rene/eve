@@ -1,0 +1,20 @@
+
+# general setup
+#export CROSS_COMPILE := [toolchain directory]/bin/arm-linux-gnueabihf-
+
+
+# TC setup
+#export TEEC_EXPORT = [optee_client out directory]/export
+
+
+ARENA = /mnt/volumes/ftpm_volume/projects/zedata
+
+# general setup
+# export CROSS_COMPILE := $(ARENA)/toolchains/musl/arm-linux-musleabi-cross/bin/arm-linux-musleabi-
+
+export CROSS_COMPILE = $(ARENA)/toolchains/gcc-bootlin-9.3.0_aarch64-buildroot-linux-gnu/bin/aarch64-linux-
+
+
+# TC setup
+export TEEC_EXPORT = /mnt/volumes/ftpm_volume/projects/zedata/optee/host/usr
+
