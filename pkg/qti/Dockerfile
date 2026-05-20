@@ -53,6 +53,12 @@ RUN autoreconf -i && \
       make -j "$(getconf _NPROCESSORS_ONLN)" && \
       make -j "$(getconf _NPROCESSORS_ONLN)" install
 
+# rpmsg
+ENV RPMSGEXPORT_REV=324d88d668f36c6a5e6a9c2003a050b8a5a3cd60
+ADD --keep-git-dir=true https://github.com/andersson/rpmsgexport.git#${RPMSGEXPORT_REV} /rpmsgexport
+WORKDIR /rpmsgexport
+RUN make prefix=/usr install
+
 FROM scratch
 # hadolint ignore=DL3020
 ADD rootfs/ /
@@ -66,4 +72,5 @@ COPY --from=build /usr/bin/adsprpcd /usr/bin/
 COPY --from=build /usr/bin/cdsprpcd /usr/bin/
 COPY --from=build /usr/bin/gdsprpcd /usr/bin/
 COPY --from=build /usr/bin/sdsprpcd /usr/bin/
+COPY --from=build /usr/bin/rpmsgexport /usr/bin/
 
