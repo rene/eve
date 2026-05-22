@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Load modules
+modprobe qca8k
+
 # rmtfs
 /usr/bin/rmtfs &
 
