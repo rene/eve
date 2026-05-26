@@ -75,13 +75,22 @@ func (m *DpcManager) includeLastResortPort(ifAttrs netmonitor.IfAttrs) bool {
 	if m.isInterfaceAssigned(ifName) {
 		return false
 	}
-	if ifAttrs.IsLoopback || !ifAttrs.WithBroadcast || ifAttrs.Enslaved {
+	if ifAttrs.IsLoopback || !ifAttrs.WithBroadcast {
+		return false
+	}
+	// DSA slave ports appear enslaved to the DSA master (CPU port) via IFLA_MASTER
+	// on some kernel versions, but remain independent L3-capable interfaces.
+	// Only reject non-DSA enslaved interfaces (bridge/bond members etc.).
+	if ifAttrs.Enslaved && ifAttrs.IfType != "dsa" {
 		return false
 	}
 
 	switch ifAttrs.IfType {
 	case "device":
 		return true
+	case "dsa":
+		// DSA switch slave port. Exclude if additionally enslaved to a bridge or bond.
+		return !ifAttrs.Enslaved
 	case "bridge":
 		// Was this originally an ethernet interface turned into a bridge?
 		_, exists, _ := m.NetworkMonitor.GetInterfaceIndex("k" + ifName)
