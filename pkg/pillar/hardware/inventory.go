@@ -18,6 +18,7 @@ import (
 	"github.com/lf-edge/eve-api/go/info"
 	"github.com/lf-edge/eve/pkg/pillar/base"
 	"github.com/lf-edge/eve/pkg/pillar/evetpm"
+	"github.com/vishvananda/netlink"
 	"github.com/zededa/ghw"
 	"github.com/zededa/ghw/pkg/can"
 	"github.com/zededa/ghw/pkg/option"
@@ -306,13 +307,23 @@ func getNetworkDevices() ([]*info.NetworkDevice, error) {
 			}
 		}
 
-		// Type guessing
+		// Type guessing by name prefix.
 		if strings.HasPrefix(nic.Name, "wlan") || strings.HasPrefix(nic.Name, "wl") {
 			nd.Type = info.NetworkDeviceType_NETWORK_DEVICE_TYPE_WIFI
 		} else if strings.HasPrefix(nic.Name, "wwan") {
 			nd.Type = info.NetworkDeviceType_NETWORK_DEVICE_TYPE_WWAN
 		} else if strings.HasPrefix(nic.Name, "eth") || strings.HasPrefix(nic.Name, "en") {
 			nd.Type = info.NetworkDeviceType_NETWORK_DEVICE_TYPE_ETHERNET
+		}
+		// DSA (Distributed Switch Architecture) slave ports may use naming
+		// conventions that don't start with "eth" or "en" (e.g. "lan0", "wan0").
+		// Detect them by link type reported by the kernel.
+		if nd.Type == info.NetworkDeviceType_NETWORK_DEVICE_TYPE_UNKNOWN {
+			if link, err := netlink.LinkByName(nic.Name); err == nil {
+				if link.Type() == "dsa" {
+					nd.Type = info.NetworkDeviceType_NETWORK_DEVICE_TYPE_ETHERNET
+				}
+			}
 		}
 
 		if nic.PCIAddress != nil {
