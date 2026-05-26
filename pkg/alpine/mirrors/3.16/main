@@ -222,6 +222,7 @@ libbz2
 libc-dev
 libc-utils
 libcap
+libcap-dev
 libcap-ng
 libcap-ng-dev
 libcom_err
