@@ -3,10 +3,26 @@
 # Copyright (c) 2026 Zededa, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-FROM lfedge/eve-alpine:5012b22e49d947e0e45e1f5b3a65ebbeb89dec96 AS build
-ENV BUILD_PKGS="autoconf automake build-base bsd-compat-headers eudev-dev eudev-libs glib glib-dev json-c json-c-dev libbsd libbsd-dev libtool linux-headers git meson pkgconfig xz-dev xz-libs yaml yaml-dev"
-ENV PKGS="alpine-baselayout eudev-libs fts libbsd glib json-c xz-libs yaml"
+FROM lfedge/eve-alpine:ccb9f8cdef745eb5607ce5761c4bb7512246cb4c AS build
+ENV BUILD_PKGS="autoconf automake build-base bsd-compat-headers eudev-dev eudev-libs glib glib-dev json-c json-c-dev libcap libcap-dev libbsd libbsd-dev libtool linux-headers git glib glib-dev meson openssl openssl-dev pkgconfig xz-dev xz-libs yaml yaml-dev"
+ENV PKGS="alpine-baselayout eudev-libs fts libcap libbsd glib meson openssl json-c xz-libs yaml"
 RUN eve-alpine-deploy.sh
+
+# Build adbd
+ENV ADBD_REV=07f091cd595d61555bb857096532c8a9d7d81291
+ADD --keep-git-dir=true https://github.com/arduino/adbd.git#${ADBD_REV} /adbd
+COPY patches/ /patches
+WORKDIR /adbd
+# Apply patches
+RUN git config --global user.name 'Project EVE' && \
+    git config --global user.email 'builder@projecteve.dev' && \
+    for x in /patches/*.patch; do \
+      git am $x; \
+    done
+# Build
+RUN ./configure --prefix=/usr && \
+      make -j "$(getconf _NPROCESSORS_ONLN)" && \
+      make -j "$(getconf _NPROCESSORS_ONLN)" install
 
 # Build qmi-framework
 ENV QMI_FRAMEWORK_VERSION=v0.1.3
@@ -73,4 +89,5 @@ COPY --from=build /usr/bin/cdsprpcd /usr/bin/
 COPY --from=build /usr/bin/gdsprpcd /usr/bin/
 COPY --from=build /usr/bin/sdsprpcd /usr/bin/
 COPY --from=build /usr/bin/rpmsgexport /usr/bin/
+COPY --from=build /usr/sbin/adb* /usr/sbin/
 

@@ -1,0 +1,468 @@
+From 5d6c5fd20cb09e6dc1916f1dcb89bb524102623b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=AA=20de=20Souza=20Pinto?= <rene@renesp.com.br>
+Date: Fri, 22 May 2026 15:10:23 +0000
+Subject: [PATCH] Build for alpine
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Renê de Souza Pinto <rene@renesp.com.br>
+---
+ adb/diagnose_usb.cpp             |   2 +
+ adb/sysdeps.h                    |   2 +
+ base/file.cpp                    |   2 +
+ base/logging.cpp                 |   1 +
+ include/cutils/properties.h      |   2 +
+ include/musl-compat.h            |  86 ++++++++++
+ libcrypto_utils/android_pubkey.c | 260 +++++--------------------------
+ 7 files changed, 138 insertions(+), 217 deletions(-)
+ create mode 100644 include/musl-compat.h
+
+diff --git a/adb/diagnose_usb.cpp b/adb/diagnose_usb.cpp
+index 0f067b0ec..bfb296643 100644
+--- a/adb/diagnose_usb.cpp
++++ b/adb/diagnose_usb.cpp
+@@ -16,6 +16,8 @@
+ 
+ #include "diagnose_usb.h"
+ 
++#include "musl-compat.h"
++
+ #include <errno.h>
+ #include <unistd.h>
+ 
+diff --git a/adb/sysdeps.h b/adb/sysdeps.h
+index 212c1c365..355b025a1 100644
+--- a/adb/sysdeps.h
++++ b/adb/sysdeps.h
+@@ -29,6 +29,8 @@
+ #include <string>
+ #include <vector>
+ 
++#include "musl-compat.h"
++
+ // Include this before open/close/unlink are defined as macros below.
+ #include <android-base/errors.h>
+ #include <android-base/unique_fd.h>
+diff --git a/base/file.cpp b/base/file.cpp
+index ed994b38b..6271d2286 100644
+--- a/base/file.cpp
++++ b/base/file.cpp
+@@ -24,6 +24,8 @@
+ #include <string>
+ #include <string.h>
+ 
++#include "musl-compat.h"
++
+ #include "android-base/macros.h"  // For TEMP_FAILURE_RETRY on Darwin.
+ #include "android-base/utf8.h"
+ #define LOG_TAG "base.file"
+diff --git a/base/logging.cpp b/base/logging.cpp
+index 8854f199d..5731845df 100644
+--- a/base/logging.cpp
++++ b/base/logging.cpp
+@@ -18,6 +18,7 @@
+ #include <windows.h>
+ #endif
+ 
++#include "musl-compat.h"
+ #include "android-base/logging.h"
+ 
+ #include <string.h>
+diff --git a/include/cutils/properties.h b/include/cutils/properties.h
+index c6e25c38e..5d2cace16 100644
+--- a/include/cutils/properties.h
++++ b/include/cutils/properties.h
+@@ -17,6 +17,8 @@
+ #ifndef __CUTILS_PROPERTIES_H
+ #define __CUTILS_PROPERTIES_H
+ 
++#include "musl-compat.h"
++
+ #include <sys/cdefs.h>
+ #include <stddef.h>
+ #if !ADB_NON_ANDROID
+diff --git a/include/musl-compat.h b/include/musl-compat.h
+new file mode 100644
+index 000000000..95e56cee6
+--- /dev/null
++++ b/include/musl-compat.h
+@@ -0,0 +1,86 @@
++#pragma once
++
++#include <sys/stat.h>
++#include <errno.h>
++#include <unistd.h>
++#include <grp.h>
++#include <string.h>
++#include <stdio.h>
++#include <openssl/evp.h>
++
++// sys/cdefs.h BSD compat macros
++#ifndef __BEGIN_DECLS
++#ifdef __cplusplus
++#define __BEGIN_DECLS extern "C" {
++#define __END_DECLS   }
++#else
++#define __BEGIN_DECLS
++#define __END_DECLS
++#endif
++#endif
++
++// Fix typeof -> __typeof__ for musl/strict C++ mode
++#ifndef typeof
++#define typeof __typeof__
++#endif
++
++// Override TEMP_FAILURE_RETRY with decltype-based version
++#ifdef TEMP_FAILURE_RETRY
++#undef TEMP_FAILURE_RETRY
++#endif
++#define TEMP_FAILURE_RETRY(exp)                    \
++    ({                                             \
++        decltype(exp) _rc;                         \
++        do { _rc = (exp); }                        \
++        while (_rc == -1 && errno == EINTR);       \
++        _rc;                                       \
++    })
++
++// BSD/glibc macros missing from musl
++#ifndef DEFFILEMODE
++#define DEFFILEMODE (S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH)
++#endif
++
++// BSD/glibc function missing from musl
++#ifndef getprogname
++#define getprogname() program_invocation_short_name
++#endif
++
++// glibc-specific group membership check
++#ifndef group_member
++static inline int group_member(gid_t gid) {
++    if (getgid() == gid || getegid() == gid) return 1;
++    int ngroups = getgroups(0, NULL);
++    if (ngroups <= 0) return 0;
++    gid_t* groups = (gid_t*)alloca(ngroups * sizeof(gid_t));
++    if (getgroups(ngroups, groups) < 0) return 0;
++    for (int i = 0; i < ngroups; i++)
++        if (groups[i] == gid) return 1;
++    return 0;
++}
++#endif
++
++// BSD internal base64 decode via OpenSSL
++#ifndef __b64_pton
++static inline int __b64_pton(const char* src, unsigned char* dst, size_t dstlen) {
++    size_t srclen = strlen(src);
++    char* clean = (char*)alloca(srclen + 1);
++    size_t j = 0;
++    for (size_t i = 0; i < srclen; i++)
++        if (src[i] != '\n' && src[i] != '\r' && src[i] != ' ')
++            clean[j++] = src[i];
++    clean[j] = '\0';
++    int ret = EVP_DecodeBlock(dst, (const unsigned char*)clean, (int)j);
++    if (ret < 0) return -1;
++    if (j >= 2 && clean[j-1] == '=') ret--;
++    if (j >= 2 && clean[j-2] == '=') ret--;
++    return ret;
++}
++#endif
++
++// At the end of musl-compat.h, BEFORE properties.h gets included
++
++#ifndef PROP_VALUE_MAX
++#define PROP_VALUE_MAX 92
++#endif
++
+diff --git a/libcrypto_utils/android_pubkey.c b/libcrypto_utils/android_pubkey.c
+index cdad40c7e..630ff7382 100644
+--- a/libcrypto_utils/android_pubkey.c
++++ b/libcrypto_utils/android_pubkey.c
+@@ -1,241 +1,67 @@
+-/*
+- * Copyright (C) 2016 The Android Open Source Project
+- *
+- * Licensed under the Apache License, Version 2.0 (the "License");
+- * you may not use this file except in compliance with the License.
+- * You may obtain a copy of the License at
+- *
+- *      http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
+-
+-#include <crypto_utils/android_pubkey.h>
+-
+-#include <assert.h>
+-#include <stdlib.h>
+-#include <string.h>
+-
++// android_pubkey.c - rewritten for OpenSSL 3.x / LibreSSL compatibility
++#include "crypto_utils/android_pubkey.h"
+ #include <openssl/bn.h>
++#include <openssl/rsa.h>
++#include <openssl/evp.h>
++#include <string.h>
++#include <stdlib.h>
+ 
+-// Better safe than sorry.
+-#if (ANDROID_PUBKEY_MODULUS_SIZE % 4) != 0
+-#error RSA modulus size must be multiple of the word size!
+-#endif
+-
+-// Size of the RSA modulus in words.
+-#define ANDROID_PUBKEY_MODULUS_SIZE_WORDS (ANDROID_PUBKEY_MODULUS_SIZE / 4)
++#define ANDROID_PUBKEY_MODULUS_SIZE (2048 / 8)
+ 
+-// This file implements encoding and decoding logic for Android's custom RSA
+-// public key binary format. Public keys are stored as a sequence of
+-// little-endian 32 bit words. Note that Android only supports little-endian
+-// processors, so we don't do any byte order conversions when parsing the binary
+-// struct.
+-typedef struct RSAPublicKey {
+-    // Modulus length. This must be ANDROID_PUBKEY_MODULUS_SIZE.
++typedef struct {
+     uint32_t modulus_size_words;
+-
+-    // Precomputed montgomery parameter: -1 / n[0] mod 2^32
+     uint32_t n0inv;
+-
+-    // RSA modulus as a little-endian array.
+-    uint8_t modulus[ANDROID_PUBKEY_MODULUS_SIZE];
+-
+-    // Montgomery parameter R^2 as a little-endian array of little-endian words.
+-    uint8_t rr[ANDROID_PUBKEY_MODULUS_SIZE];
+-
+-    // RSA modulus: 3 or 65537
++    uint8_t  modulus[ANDROID_PUBKEY_MODULUS_SIZE];
++    uint8_t  rr[ANDROID_PUBKEY_MODULUS_SIZE];
+     uint32_t exponent;
+-} RSAPublicKey;
+-
+-// Reverses byte order in |buffer|.
+-static void reverse_bytes(uint8_t* buffer, size_t size) {
+-  size_t i;
+-  for (i = 0; i < (size + 1) / 2; ++i) {
+-    uint8_t tmp = buffer[i];
+-    buffer[i] = buffer[size - i - 1];
+-    buffer[size - i - 1] = tmp;
+-  }
+-}
++} AndroidPublicKey;
+ 
+ bool android_pubkey_decode(const uint8_t* key_buffer, size_t size, RSA** key) {
+-  const RSAPublicKey* key_struct = (RSAPublicKey*)key_buffer;
+-  bool ret = false;
+-  uint8_t modulus_buffer[ANDROID_PUBKEY_MODULUS_SIZE];
+-  RSA* new_key = RSA_new();
+-  if (!new_key) {
+-    goto cleanup;
+-  }
+-
+-  // Check |size| is large enough and the modulus size is correct.
+-  if (size < sizeof(RSAPublicKey)) {
+-    goto cleanup;
+-  }
+-  if (key_struct->modulus_size_words != ANDROID_PUBKEY_MODULUS_SIZE_WORDS) {
+-    goto cleanup;
+-  }
+-
+-  // Convert the modulus to big-endian byte order as expected by BN_bin2bn.
+-  memcpy(modulus_buffer, key_struct->modulus, sizeof(modulus_buffer));
+-  reverse_bytes(modulus_buffer, sizeof(modulus_buffer));
+-  new_key->n = BN_bin2bn(modulus_buffer, sizeof(modulus_buffer), NULL);
+-  if (!new_key->n) {
+-    goto cleanup;
+-  }
+-
+-  // Read the exponent.
+-  new_key->e = BN_new();
+-  if (!new_key->e || !BN_set_word(new_key->e, key_struct->exponent)) {
+-    goto cleanup;
+-  }
+-
+-  // Note that we don't extract the montgomery parameters n0inv and rr from
+-  // the RSAPublicKey structure. They assume a word size of 32 bits, but
+-  // BoringSSL may use a word size of 64 bits internally, so we're lacking the
+-  // top 32 bits of n0inv in general. For now, we just ignore the parameters
+-  // and have BoringSSL recompute them internally. More sophisticated logic can
+-  // be added here if/when we want the additional speedup from using the
+-  // pre-computed montgomery parameters.
++    if (size < sizeof(AndroidPublicKey)) return false;
+ 
+-  *key = new_key;
+-  ret = true;
++    const AndroidPublicKey* key_struct = (const AndroidPublicKey*)key_buffer;
++    if (key_struct->modulus_size_words != ANDROID_PUBKEY_MODULUS_SIZE / 4)
++        return false;
+ 
+-cleanup:
+-  if (!ret && new_key) {
+-    RSA_free(new_key);
+-  }
+-  return ret;
+-}
+-
+-#ifdef ADB_NON_ANDROID
+-/* From https://android.googlesource.com/platform/external/chromium_org/third_party/boringssl/src/+/6887edb^!/ */
+-
+-/* constant_time_select_ulong returns |x| if |v| is 1 and |y| if |v| is 0. Its
+- * behavior is undefined if |v| takes any other value. */
+-static BN_ULONG constant_time_select_ulong(int v, BN_ULONG x, BN_ULONG y) {
+-  BN_ULONG mask = v;
+-  mask--;
+-
+-  return (~mask & x) | (mask & y);
+-}
+-
+-/* constant_time_le_size_t returns 1 if |x| <= |y| and 0 otherwise. |x| and |y|
+- * must not have their MSBs set. */
+-static int constant_time_le_size_t(size_t x, size_t y) {
+-  return ((x - y - 1) >> (sizeof(size_t) * 8 - 1)) & 1;
+-}
+-
+-/* read_word_padded returns the |i|'th word of |in|, if it is not out of
+- * bounds. Otherwise, it returns 0. It does so without branches on the size of
+- * |in|, however it necessarily does not have the same memory access pattern. If
+- * the access would be out of bounds, it reads the last word of |in|. |in| must
+- * not be zero. */
+-static BN_ULONG read_word_padded(const BIGNUM *in, size_t i) {
+-  /* Read |in->d[i]| if valid. Otherwise, read the last word. */
+-  BN_ULONG l = in->d[constant_time_select_ulong(
+-      constant_time_le_size_t(in->dmax, i), in->dmax - 1, i)];
+-
+-  /* Clamp to zero if above |d->top|. */
+-  return constant_time_select_ulong(constant_time_le_size_t(in->top, i), 0, l);
+-}
+-
+-int BN_bn2bin_padded(uint8_t *out, size_t len, const BIGNUM *in) {
+-  size_t i;
+-  BN_ULONG l;
+-
+-  /* Special case for |in| = 0. Just branch as the probability is negligible. */
+-  if (BN_is_zero(in)) {
+-    memset(out, 0, len);
+-    return 1;
+-  }
++    RSA* new_key = RSA_new();
++    if (!new_key) return false;
+ 
+-  /* Check if the integer is too big. This case can exit early in non-constant
+-   * time. */
+-  if (in->top > (len + (BN_BYTES - 1)) / BN_BYTES) {
+-    return 0;
+-  }
+-  if ((len % BN_BYTES) != 0) {
+-    l = read_word_padded(in, len / BN_BYTES);
+-    if (l >> (8 * (len % BN_BYTES)) != 0) {
+-      return 0;
++    BIGNUM* n = BN_bin2bn(key_struct->modulus, ANDROID_PUBKEY_MODULUS_SIZE, NULL);
++    BIGNUM* e = BN_new();
++    if (!n || !e || !BN_set_word(e, key_struct->exponent)) {
++        BN_free(n); BN_free(e); RSA_free(new_key);
++        return false;
+     }
+-  }
+-
+-  /* Write the bytes out one by one. Serialization is done without branching on
+-   * the bits of |in| or on |in->top|, but if the routine would otherwise read
+-   * out of bounds, the memory access pattern can't be fixed. However, for an
+-   * RSA key of size a multiple of the word size, the probability of BN_BYTES
+-   * leading zero octets is low.
+-   *
+-   * See Falko Stenzke, "Manger's Attack revisited", ICICS 2010. */
+-  i = len;
+-  while (i--) {
+-    l = read_word_padded(in, i / BN_BYTES);
+-    *(out++) = (uint8_t)(l >> (8 * (i % BN_BYTES))) & 0xff;
+-  }
+-  return 1;
+-}
+ 
+-#endif
+-
+-static bool android_pubkey_encode_bignum(const BIGNUM* num, uint8_t* buffer) {
+-  if (!BN_bn2bin_padded(buffer, ANDROID_PUBKEY_MODULUS_SIZE, num)) {
+-    return false;
+-  }
++    // RSA_set0_key takes ownership of n, e, d
++    if (!RSA_set0_key(new_key, n, e, NULL)) {
++        BN_free(n); BN_free(e); RSA_free(new_key);
++        return false;
++    }
+ 
+-  reverse_bytes(buffer, ANDROID_PUBKEY_MODULUS_SIZE);
+-  return true;
++    *key = new_key;
++    return true;
+ }
+ 
+ bool android_pubkey_encode(const RSA* key, uint8_t* key_buffer, size_t size) {
+-  RSAPublicKey* key_struct = (RSAPublicKey*)key_buffer;
+-  bool ret = false;
+-  BN_CTX* ctx = BN_CTX_new();
+-  BIGNUM* r32 = BN_new();
+-  BIGNUM* n0inv = BN_new();
+-  BIGNUM* rr = BN_new();
+-
+-  if (sizeof(RSAPublicKey) > size ||
+-      RSA_size(key) != ANDROID_PUBKEY_MODULUS_SIZE) {
+-    goto cleanup;
+-  }
+-
+-  // Store the modulus size.
+-  key_struct->modulus_size_words = ANDROID_PUBKEY_MODULUS_SIZE_WORDS;
++    if (size < sizeof(AndroidPublicKey)) return false;
+ 
+-  // Compute and store n0inv = -1 / N[0] mod 2^32.
+-  if (!ctx || !r32 || !n0inv || !BN_set_bit(r32, 32) ||
+-      !BN_mod(n0inv, key->n, r32, ctx) ||
+-      !BN_mod_inverse(n0inv, n0inv, r32, ctx) || !BN_sub(n0inv, r32, n0inv)) {
+-    goto cleanup;
+-  }
+-  key_struct->n0inv = (uint32_t)BN_get_word(n0inv);
++    AndroidPublicKey* key_struct = (AndroidPublicKey*)key_buffer;
++    memset(key_struct, 0, sizeof(*key_struct));
+ 
+-  // Store the modulus.
+-  if (!android_pubkey_encode_bignum(key->n, key_struct->modulus)) {
+-    goto cleanup;
+-  }
++    key_struct->modulus_size_words = ANDROID_PUBKEY_MODULUS_SIZE / 4;
++    key_struct->exponent = 65537;
+ 
+-  // Compute and store rr = (2^(rsa_size)) ^ 2 mod N.
+-  if (!ctx || !rr || !BN_set_bit(rr, ANDROID_PUBKEY_MODULUS_SIZE * 8) ||
+-      !BN_mod_sqr(rr, rr, key->n, ctx) ||
+-      !android_pubkey_encode_bignum(rr, key_struct->rr)) {
+-    goto cleanup;
+-  }
++    const BIGNUM* n = NULL;
++    RSA_get0_key(key, &n, NULL, NULL);
++    if (!n) return false;
+ 
+-  // Store the exponent.
+-  key_struct->exponent = (uint32_t)BN_get_word(key->e);
++    int bytes = BN_num_bytes(n);
++    if (bytes > ANDROID_PUBKEY_MODULUS_SIZE) return false;
+ 
+-  ret = true;
++    // Right-align into the fixed-size buffer
++    memset(key_struct->modulus, 0, ANDROID_PUBKEY_MODULUS_SIZE);
++    BN_bn2bin(n, key_struct->modulus + (ANDROID_PUBKEY_MODULUS_SIZE - bytes));
+ 
+-cleanup:
+-  BN_free(rr);
+-  BN_free(n0inv);
+-  BN_free(r32);
+-  BN_CTX_free(ctx);
+-  return ret;
++    return true;
+ }
+-- 
+2.49.1
+
