@@ -59,7 +59,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Login to Docker Hub
-        if: ${{ github.event.repository.full_name == 'lf-edge/eve' }}
+        if: ${{ github.event.repository.full_name == 'rene/eve' }}
         run: |
           docker login
       - name: Build packages
@@ -100,7 +100,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Login to Docker Hub
-        if: ${{ github.event.repository.full_name == 'lf-edge/eve' }}
+        if: ${{ github.event.repository.full_name == 'rene/eve' }}
         run: |
           docker login
       - name: Build packages
@@ -410,7 +410,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Login to Docker Hub
-        if: ${{ github.event.repository.full_name == 'lf-edge/eve' }}
+        if: ${{ github.event.repository.full_name == 'rene/eve' }}
         run: |
           docker login
       - name: Ensure packages for cross-arch build
