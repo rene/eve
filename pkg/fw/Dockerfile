@@ -63,6 +63,7 @@ RUN mkdir /linux-firmware &&\
     make -C /linux-firmware FIRMWAREDIR="/lib/firmware" install
 
 COPY firmware-qti /firmware-qti
+RUN ln -s lt8713sx_fw.bin /lib/firmware/lt8713sx_fw.bin
 
 # add compat links for pre-5.0 kernel
 RUN ln -s brcmfmac43455-sdio.raspberrypi,3-model-b-plus.txt /lib/firmware/brcm/brcmfmac43455-sdio.txt &&\
@@ -190,8 +191,10 @@ COPY --from=build /lib/firmware/hailo /lib/firmware/hailo
 COPY --from=build /firmware-qti/ath11k /lib/firmware/ath11k
 RUN ln -s /lib/firmware/ath11k/QCA6698AQ /lib/firmware/ath11k/WCN6855
 COPY --from=build /firmware-qti/ath12k /lib/firmware/ath12k
+COPY --from=build /firmware-qti/Lontium /lib/firmware/Lontium
 COPY --from=build /firmware-qti/qca /lib/firmware/qca
 COPY --from=build /firmware-qti/qcom /lib/firmware/qcom
+COPY --from=build /firmware-qti/qcom/*.bin /lib/firmware/
 # License files
 COPY --from=build /firmware-qti/LICENSE* /lib/firmware/
 
