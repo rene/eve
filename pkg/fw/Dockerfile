@@ -23,6 +23,10 @@ ENV JETPACK6_URL=https://repo.download.nvidia.com/jetson/t234/pool/main/n/nvidia
 ENV JETPACK7_DEB=nvidia-l4t-firmware-openrm_38.4.0-20251230160601_arm64.deb
 ENV JETPACK7_URL=https://repo.download.nvidia.com/jetson/som/pool/main/n/nvidia-l4t-firmware-openrm/${JETPACK7_DEB}
 
+# Nvidia firmware for NVIDIA GB10 platform
+ENV GB10_DEB=nvidia-firmware-580-580.159.03_580.159.03-0ubuntu0.24.04.1_arm64.deb
+ENV GB10_URL=http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/nvidia-firmware-580-580.159.03_580.159.03-0ubuntu0.24.04.1_arm64.deb
+
 FROM build-base AS generic
 ENV NVIDIA_FW_TEGRA=${JETPACK5_DEB}
 ENV NVIDIA_FW_URL=${JETPACK5_URL}
@@ -38,6 +42,10 @@ ENV NVIDIA_FW_URL=${JETPACK6_URL}
 FROM build-base AS nvidia-jp7
 ENV NVIDIA_FW_TEGRA=${JETPACK7_DEB}
 ENV NVIDIA_FW_URL=${JETPACK7_URL}
+
+FROM build-base AS nvidia-gb10
+ENV NVIDIA_FW_TEGRA=${GB10_DEB}
+ENV NVIDIA_FW_URL=${GB10_URL}
 
 FROM ${PLATFORM} AS build
 
@@ -223,8 +231,10 @@ COPY --from=build /lib/firmware/ti-connectivity /lib/firmware/ti-connectivity
 RUN cp --symbolic-link /lib/firmware/brcm/* /lib/firmware
 # Nvidia Jetson related firmwares
 COPY --from=build /nvidia-firmware/lib/firmware/ /lib/firmware/
-COPY --from=build /lib/firmware/nvidia/tegra210 /lib/firmware/nvidia/tegra210
+COPY --from=build /lib/firmware/nvidia/ /lib/firmware/nvidia/
 COPY --from=build /rtw88/*.bin /lib/firmware/rtw88/
+# HP ZGX related firmwares
+COPY --from=build /lib/firmware/mediatek/mt7925 /lib/firmware/mediatek/mt7925
 # Intel ICE firmware.
 COPY --from=build /lib/firmware/intel/ice /lib/firmware/intel/ice
 COPY --from=build /lib/firmware/hailo /lib/firmware/hailo
@@ -267,6 +277,7 @@ FROM compactor-common AS compactor-generic
 FROM compactor-common AS compactor-nvidia-jp5
 FROM compactor-common AS compactor-nvidia-jp6
 FROM compactor-common AS compactor-nvidia-jp7
+FROM compactor-common AS compactor-nvidia-gb10
 
 FROM compactor-${PLATFORM} AS compactor
 
