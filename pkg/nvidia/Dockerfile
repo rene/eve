@@ -58,17 +58,17 @@ FROM build-base AS arm64-nvidia-gb10
 ENV NVIDIA_VER=gb10
 
 ADD https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/./libnvidia-egl-wayland1_1.1.21-1ubuntu1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
-ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-cfg1-580_580.159.03-0ubuntu0.24.04.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
-ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-compute-580_580.159.03-0ubuntu0.24.04.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
-ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-decode-580_580.159.03-0ubuntu0.24.04.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
-ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-encode-580_580.159.03-0ubuntu0.24.04.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
-ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-extra-580_580.159.03-0ubuntu0.24.04.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
-ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-fbc1-580_580.159.03-0ubuntu0.24.04.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
-ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-gl-580_580.159.03-0ubuntu0.24.04.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
-ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/nvidia-compute-utils-580_580.159.03-0ubuntu0.24.04.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
-ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/nvidia-firmware-580-580.159.03_580.159.03-0ubuntu0.24.04.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
-ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/nvidia-utils-580_580.159.03-0ubuntu0.24.04.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
-ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/xserver-xorg-video-nvidia-580_580.159.03-0ubuntu0.24.04.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
+ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-cfg1-580_580.159.03-0ubuntu0.25.10.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
+ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-compute-580_580.159.03-0ubuntu0.25.10.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
+ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-decode-580_580.159.03-0ubuntu0.25.10.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
+ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-encode-580_580.159.03-0ubuntu0.25.10.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
+ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-extra-580_580.159.03-0ubuntu0.25.10.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
+ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-fbc1-580_580.159.03-0ubuntu0.25.10.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
+ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/libnvidia-gl-580_580.159.03-0ubuntu0.25.10.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
+ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/nvidia-compute-utils-580_580.159.03-0ubuntu0.25.10.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
+ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/nvidia-firmware-580-580.159.03_580.159.03-0ubuntu0.25.10.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
+ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/nvidia-utils-580_580.159.03-0ubuntu0.25.10.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
+ADD http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/xserver-xorg-video-nvidia-580_580.159.03-0ubuntu0.25.10.1_arm64.deb /Linux_for_Tegra/nv_tegra/l4t_deb_packages/
 
 FROM ${TARGETARCH}-${PLATFORM} AS build
 
@@ -155,6 +155,12 @@ RUN mkdir -p /ldconfig-bin /nvfanctrl/dist /nvct/dist /cdi /rootfs-dist /cdi-dis
         done ; \
     fi && \
     rm -rf /rootfs/*
+
+# Create libnvidia-ml.so.1 if doesn't exist
+RUN if [ ! -f /rootfs-dist/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.1 ]; then \
+        cp /rootfs-dist/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.580.159.03 \
+           /rootfs-dist/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.1 ; \
+    fi
 
 FROM scratch
 COPY --from=build /cdi-dist/*.yaml /etc/cdi/
