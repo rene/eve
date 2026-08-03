@@ -9,7 +9,9 @@ Content-Transfer-Encoding: 8bit
 Perform some changes in order to build nvidia-ctk for alpine:
 
 - Build static binaries
-- Remove RTLD_DEEPBIND (musl doesn't support it), set it to 0
+- Remove RTLD_DEEPBIND (musl doesn't support it), so use RTLD_GLOBAL which
+  will make the symbols of the loading object available for symbols
+  resolution of subsequently loaded shared objects by dl_open().
 - Remove RTLD_DI_ORIGIN (glibc-only) and implement equivalent function
   using RTLD_DI_LINKMAP (supported on musl) to get the library's directory
 
@@ -51,7 +53,7 @@ index 6941d08c..f237b6d8 100644
  
  const (
 -	RTLD_DEEPBIND = C.RTLD_DEEPBIND
-+	RTLD_DEEPBIND = 0
++	RTLD_DEEPBIND = C.RTLD_GLOBAL
  )
  
  // Path returns the path to the loaded library.
