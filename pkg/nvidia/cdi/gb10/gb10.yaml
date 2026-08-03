@@ -8,7 +8,7 @@ devices:
         - path: /dev/nvidia0
           fileMode: 438
           permissions: rwm
-        - path: /dev/dri/card1
+        - path: /dev/dri/card0
           fileMode: 432
           permissions: rwm
           gid: 44
@@ -23,7 +23,7 @@ devices:
             - nvidia-cdi-hook
             - create-symlinks
             - '--link'
-            - ../card1::/dev/dri/by-path/pci-000f:01:00.0-card
+            - ../card0::/dev/dri/by-path/pci-000f:01:00.0-card
             - '--link'
             - ../renderD128::/dev/dri/by-path/pci-000f:01:00.0-render
           env:
@@ -37,7 +37,7 @@ devices:
         - path: /dev/nvidia0
           fileMode: 438
           permissions: rwm
-        - path: /dev/dri/card1
+        - path: /dev/dri/card0
           fileMode: 432
           permissions: rwm
           gid: 44
@@ -52,7 +52,7 @@ devices:
             - nvidia-cdi-hook
             - create-symlinks
             - '--link'
-            - ../card1::/dev/dri/by-path/pci-000f:01:00.0-card
+            - ../card0::/dev/dri/by-path/pci-000f:01:00.0-card
             - '--link'
             - ../renderD128::/dev/dri/by-path/pci-000f:01:00.0-render
           env:
@@ -66,7 +66,7 @@ devices:
         - path: /dev/nvidia0
           fileMode: 438
           permissions: rwm
-        - path: /dev/dri/card1
+        - path: /dev/dri/card0
           fileMode: 432
           permissions: rwm
           gid: 44
@@ -81,7 +81,7 @@ devices:
             - nvidia-cdi-hook
             - create-symlinks
             - '--link'
-            - ../card1::/dev/dri/by-path/pci-000f:01:00.0-card
+            - ../card0::/dev/dri/by-path/pci-000f:01:00.0-card
             - '--link'
             - ../renderD128::/dev/dri/by-path/pci-000f:01:00.0-render
           env:
