@@ -18,7 +18,7 @@ RUN mkdir /wireless-regdb &&\
 # Nvidia Firmwares for Jetpack 5.1.3, Jetpack 6.0, and Jetpack 7.1
 ENV JETPACK5_DEB=nvidia-l4t-firmware_35.5.0-20240219203809_arm64.deb
 ENV JETPACK5_URL=https://repo.download.nvidia.com/jetson/t194/pool/main/n/nvidia-l4t-firmware/${JETPACK5_DEB}
-ENV JETPACK6_DEB=nvidia-l4t-firmware_36.3.0-20240506102626_arm64.deb
+ENV JETPACK6_DEB=nvidia-l4t-firmware_36.5.0-20260115194252_arm64.deb
 ENV JETPACK6_URL=https://repo.download.nvidia.com/jetson/t234/pool/main/n/nvidia-l4t-firmware/${JETPACK6_DEB}
 ENV JETPACK7_DEB=nvidia-l4t-firmware-openrm_38.4.0-20251230160601_arm64.deb
 ENV JETPACK7_URL=https://repo.download.nvidia.com/jetson/som/pool/main/n/nvidia-l4t-firmware-openrm/${JETPACK7_DEB}
