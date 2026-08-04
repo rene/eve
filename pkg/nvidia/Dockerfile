@@ -20,7 +20,7 @@ RUN git config --global user.email 'builder@projecteve.dev' && \
 
 # Jetpack tarballs
 ENV JETSON_JP5=https://developer.nvidia.com/downloads/embedded/l4t/r35_release_v5.0/release/jetson_linux_r35.5.0_aarch64.tbz2
-ENV JETSON_JP6=https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v3.0/release/jetson_linux_r36.3.0_aarch64.tbz2
+ENV JETSON_JP6=https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v5.0/release/Jetson_Linux_r36.5.0_aarch64.tbz2
 ENV JETSON_JP7=https://developer.nvidia.com/downloads/embedded/L4T/r38_Release_v4.0/release/Jetson_Linux_R38.4.0_aarch64.tbz2
 
 # Default Jetpack version
@@ -52,9 +52,6 @@ ENV JETPACK_VER=jp7
 FROM ${TARGETARCH}-${PLATFORM} AS build
 
 RUN echo "${EVE_PLATFORM}" > /eve-platform
-
-# CDI Files
-COPY cdi/${JETPACK_VER} /cdi
 
 ADD ${JETSON_LINUX} /jetson_linux.tbz2
 
@@ -95,13 +92,16 @@ RUN mkdir -p /ldconfig-bin && \
 # for them to be included in the SBOM.
 RUN case "${JETPACK_VER}" in \
         jp5) JL_VER=r35.5.0 ;; \
-        jp6) JL_VER=r36.3.0 ;; \
+        jp6) JL_VER=r36.5.0 ;; \
         jp7) JL_VER=r38.4.0 ;; \
         *)   JL_VER="${JETPACK_VER}" ;; \
     esac && \
     register-sbom-pkg.sh -n jetson-linux -v "${JL_VER}" -l proprietary -u https://developer.nvidia.com/embedded/jetson-linux -o /sbom-out && \
     register-sbom-pkg.sh -n nvidia-container-toolkit -v "${NVIDIA_CONTAINER_TOOLKIT_REV}" -l Apache-2.0 -u https://github.com/NVIDIA/nvidia-container-toolkit -o /sbom-out && \
     register-sbom-pkg.sh -n libc-bin -v 2.31-0ubuntu9 -l LGPL-2.1-or-later -u http://ports.ubuntu.com/ubuntu-ports/pool/main/g/glibc -o /sbom-out
+
+# CDI Files
+COPY cdi/${JETPACK_VER} /cdi
 
 # Copy udev rules
 COPY udev/${JETPACK_VER}/rules.d/* /rules.d/

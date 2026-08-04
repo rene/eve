@@ -1,6 +1,8 @@
 ---
 cdiVersion: 0.5.0
-containerEdits: {}
+containerEdits:
+  env:
+    - NVIDIA_VISIBLE_DEVICES=void
 devices:
   - containerEdits:
       deviceNodes:
@@ -26,6 +28,7 @@ devices:
         - path: /dev/v4l2-nvdec
         - path: /dev/dri/card0
         - path: /dev/dri/renderD128
+        - path: /dev/dri/renderD129
         - path: /dev/nvgpu/igpu0/as
         - path: /dev/nvgpu/igpu0/channel
         - path: /dev/nvgpu/igpu0/ctrl
@@ -40,97 +43,111 @@ devices:
         - path: /dev/nvgpu/igpu0/tsg
       hooks:
         - args:
-            - nvidia-ctk
-            - hook
+            - nvidia-cdi-hook
             - create-symlinks
-            - --link
+            - '--link'
             - /usr/lib/aarch64-linux-gnu/nvidia/nvidia_icd.json::/etc/vulkan/icd.d/nvidia_icd.json
-            - --link
+            - '--link'
             - ../nvidia/libnvidia-allocator.so::/usr/lib/aarch64-linux-gnu/gbm/nvidia-drm_gbm.so
-            - --link
+            - '--link'
             - libnvidia-allocator.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-allocator.so
-            - --link
+            - '--link'
             - ../nvidia/libnvidia-allocator.so::/usr/lib/aarch64-linux-gnu/gbm/tegra_gbm.so
-            - --link
+            - '--link'
             - ../nvidia/libnvidia-allocator.so::/usr/lib/aarch64-linux-gnu/gbm/tegra-udrm_gbm.so
-            - --link
+            - '--link'
             - 'nvidia/libcuda.so::/usr/lib/aarch64-linux-gnu/libcuda.so'
-            - --link
+            - '--link'
             - 'libcuda.so.1.1::/usr/lib/aarch64-linux-gnu/nvidia/libcuda.so'
-            - --link
+            - '--link'
             - nvidia/libnvcucompat.so::/usr/lib/aarch64-linux-gnu/libnvcucompat.so
-            - --link
+            - '--link'
             - 'nvidia/libnvcudla.so::/usr/lib/aarch64-linux-gnu/libnvcudla.so'
-            - --link
+            - '--link'
             - nvidia/libnvv4l2.so::/usr/lib/aarch64-linux-gnu/libv4l2.so.0.0.999999
-            - --link
+            - '--link'
             - nvidia/libnvv4lconvert.so::/usr/lib/aarch64-linux-gnu/libv4lconvert.so.0.0.999999
-            - --link
+            - '--link'
             - ../../../nvidia/libv4l2_nvargus.so::/usr/lib/aarch64-linux-gnu/libv4l/plugins/nv/libv4l2_nvargus.so
-            - --link
+            - '--link'
             - ../../../nvidia/libv4l2_nvcuvidvideocodec.so::/usr/lib/aarch64-linux-gnu/libv4l/plugins/nv/libv4l2_nvcuvidvideocodec.so
-            - --link
+            - '--link'
             - ../../../nvidia/libv4l2_nvvideocodec.so::/usr/lib/aarch64-linux-gnu/libv4l/plugins/nv/libv4l2_nvvideocodec.so
-            - --link
+            - '--link'
             - 'libcuda.so.1.1::/usr/lib/aarch64-linux-gnu/nvidia/libcuda.so.1'
-            - --link
+            - '--link'
             - libnvbufsurface.so.1.0.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so
-            - --link
+            - '--link'
             - libnvbufsurftransform.so.1.0.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurftransform.so
-            - --link
+            - '--link'
             - libnvdsbufferpool.so.1.0.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvdsbufferpool.so
-            - --link
+            - '--link'
             - libnvidia-egl-gbm.so.1.1.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-egl-gbm.so.1
-            - --link
+            - '--link'
             - libnvidia-egl-wayland.so.1.1.11::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-egl-wayland.so.1
-            - --link
-            - libnvidia-kms.so.540.3.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-kms.so
-            - --link
-            - libnvidia-nvvm.so.540.3.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-nvvm.so.4
-            - --link
-            - libnvidia-ptxjitcompiler.so.540.3.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-ptxjitcompiler.so.1
-            - --link
+            - '--link'
+            - libnvidia-kms.so.540.5.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-kms.so
+            - '--link'
+            - libnvidia-nvvm.so.540.5.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-nvvm.so.4
+            - '--link'
+            - libnvidia-ptxjitcompiler.so.540.5.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-ptxjitcompiler.so.1
+            - '--link'
             - libnvidia-vksc-core.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so
-            - --link
-            - libnvidia-vksc-core.so.540.3.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so.1
-            - --link
+            - '--link'
+            - libnvidia-vksc-core.so.540.5.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so.1
+            - '--link'
             - libnvid_mapper.so.1.0.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvid_mapper.so
-            - --link
+            - '--link'
             - 'libnvscibuf.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libnvscibuf.so'
-            - --link
+            - '--link'
             - libnvscicommon.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libnvscicommon.so
-            - --link
+            - '--link'
             - libnvscistream.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libnvscistream.so
-            - --link
+            - '--link'
             - libnvscisync.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libnvscisync.so
-            - --link
+            - '--link'
             - 'libnvv4l2.so::/usr/lib/aarch64-linux-gnu/nvidia/libv4l2.so.0'
-            - --link
+            - '--link'
             - libnvv4lconvert.so::/usr/lib/aarch64-linux-gnu/nvidia/libv4lconvert.so.0
-            - --link
+            - '--link'
             - 'libvulkansc.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libvulkansc.so'
-            - --link
+            - '--link'
             - libvulkansc.so.1.0.10::/usr/lib/aarch64-linux-gnu/nvidia/libvulkansc.so.1
-            - --link
+            - '--link'
+            - libwayland-client.so.0.22.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-client.so.0
+            - '--link'
+            - libwayland-client.so.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-client.so
+            - '--link'
+            - libwayland-cursor.so.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-cursor.so
+            - '--link'
+            - libwayland-cursor.so.0.22.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-cursor.so.0
+            - '--link'
+            - libwayland-egl.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-egl.so
+            - '--link'
+            - libwayland-egl.so.1.22.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-egl.so.1
+            - '--link'
+            - libwayland-server.so.0.22.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-server.so.0
+            - '--link'
+            - libwayland-server.so.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-server.so
+            - '--link'
             - ../../../lib/aarch64-linux-gnu/tegra-egl/nvidia.json::/usr/share/glvnd/egl_vendor.d/10_nvidia.json
-            - --link
-            - libGLX_nvidia.so.0::/usr/lib/aarch64-linux-gnu/nvidia/libGLX_indirect.so.0
-            - --link
+            - '--link'
             - 'libcuda.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libcuda.so'
+            - '--link'
+            - libGLX_nvidia.so.0::/usr/lib/aarch64-linux-gnu/nvidia/libGLX_indirect.so.0
           hookName: createContainer
-          path: /usr/bin/nvidia-ctk
+          path: /usr/bin/nvidia-cdi-hook
         - args:
-            - nvidia-ctk
-            - hook
+            - nvidia-cdi-hook
             - update-ldcache
+            - '--folder'
+            - /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0
             - '--folder'
             - /usr/lib/aarch64-linux-gnu/nvidia
             - '--folder'
             - /usr/lib/aarch64-linux-gnu/tegra-egl
-            - '--folder'
-            - /usr/lib/aarch64-linux-gnu/nvidia/weston
           hookName: createContainer
-          path: /usr/bin/nvidia-ctk
+          path: /usr/bin/nvidia-cdi-hook
       mounts:
         - containerPath: /etc/nv_tegra_release
           hostPath: /etc/nv_tegra_release
@@ -141,6 +158,20 @@ devices:
             - bind
         - containerPath: /dev/dri/by-path
           hostPath: /dev/dri/by-path
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/bin/nvidia-cuda-mps-control
+          hostPath: /usr/bin/nvidia-cuda-mps-control
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/bin/nvidia-cuda-mps-server
+          hostPath: /usr/bin/nvidia-cuda-mps-server
           options:
             - ro
             - nosuid
@@ -503,43 +534,43 @@ devices:
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-eglcore.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-eglcore.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-eglcore.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-eglcore.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glcore.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glcore.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glcore.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glcore.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glsi.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glsi.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glsi.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glsi.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glvkspirv.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glvkspirv.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glvkspirv.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glvkspirv.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-gpucomp.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-gpucomp.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-gpucomp.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-gpucomp.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-kms.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-kms.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-kms.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-kms.so.540.5.0
           options:
             - ro
             - nosuid
@@ -552,45 +583,43 @@ devices:
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-nvvm.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-nvvm.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-nvvm.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-nvvm.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath:
-            /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-ptxjitcompiler.so.540.3.0
-          hostPath:
-            /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-ptxjitcompiler.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-ptxjitcompiler.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-ptxjitcompiler.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rmapi-tegra.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rmapi-tegra.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rmapi-tegra.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rmapi-tegra.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rtcore.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rtcore.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rtcore.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rtcore.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-tls.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-tls.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-tls.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-tls.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so.540.5.0
           options:
             - ro
             - nosuid
@@ -794,13 +823,6 @@ devices:
             - bind
         - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvofsdk.so
           hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvofsdk.so
-          options:
-            - ro
-            - nosuid
-            - nodev
-            - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvoggopus.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvoggopus.so
           options:
             - ro
             - nosuid
@@ -1121,6 +1143,34 @@ devices:
             - nosuid
             - nodev
             - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-client.so.0.22.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-client.so.0.22.0
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-cursor.so.0.22.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-cursor.so.0.22.0
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-egl.so.1.22.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-egl.so.1.22.0
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-server.so.0.22.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-server.so.0.22.0
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
         - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/nvidia_icd.json
           hostPath: /usr/lib/aarch64-linux-gnu/nvidia/nvidia_icd.json
           options:
@@ -1163,13 +1213,6 @@ devices:
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/firmware/tegra19x/nvhost_nvdec040_ns.fw
-          hostPath: /lib/firmware/tegra19x/nvhost_nvdec040_ns.fw
-          options:
-            - ro
-            - nosuid
-            - nodev
-            - bind
         - containerPath: /usr/lib/firmware/tegra23x/nvhost_nvdec050_desc_prod.bin
           hostPath: /lib/firmware/tegra23x/nvhost_nvdec050_desc_prod.bin
           options:
@@ -1177,358 +1220,379 @@ devices:
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/share/doc/nvidia-tegra/LICENSE.nvidia-smi
-          hostPath: /usr/share/doc/nvidia-tegra/LICENSE.nvidia-smi
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/EGLWLInputEventExample
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/EGLWLInputEventExample
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/EGLWLInputEventExample
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/EGLWLInputEventExample
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/EGLWLMockNavigation
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/EGLWLMockNavigation
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/EGLWLMockNavigation
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/EGLWLMockNavigation
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/LayerManagerControl
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/LayerManagerControl
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/LayerManagerControl
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/LayerManagerControl
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/color-lcms.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/color-lcms.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/desktop-shell.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/desktop-shell.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/desktop-shell.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/desktop-shell.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/drm-backend.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/drm-backend.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/drm-backend.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/drm-backend.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/fullscreen-shell.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/fullscreen-shell.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/fullscreen-shell.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/fullscreen-shell.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/gl-renderer.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/gl-renderer.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/gl-renderer.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/gl-renderer.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/hmi-controller.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/hmi-controller.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/headless-backend.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/headless-backend.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/ivi-controller.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/ivi-controller.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/hmi-controller.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/hmi-controller.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/ivi-shell.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/ivi-shell.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/ivi-controller.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/ivi-controller.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmClient.so.2.2.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmClient.so.2.2.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/ivi-shell.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/ivi-shell.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmCommon.so.2.2.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmCommon.so.2.2.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmClient.so.2.3.2
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmClient.so.2.3.2
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmControl.so.2.2.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmControl.so.2.2.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmCommon.so.2.3.2
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmCommon.so.2.3.2
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmInput.so.2.2.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmInput.so.2.2.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmControl.so.2.3.2
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmControl.so.2.3.2
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libweston-6.so.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libweston-6.so.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmInput.so.2.3.2
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmInput.so.2.3.2
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libweston-desktop-6.so.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libweston-desktop-6.so.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libweston-13.so.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libweston-13.so.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/simple-weston-client
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/simple-weston-client
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/simple-weston-client
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/simple-weston-client
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/spring-tool
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/spring-tool
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/spring-tool
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/spring-tool
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/wayland-backend.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/wayland-backend.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/wayland-backend.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/wayland-backend.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-calibrator
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-calibrator
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-calibrator
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-calibrator
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-clickdot
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-clickdot
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-clickdot
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-clickdot
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-cliptest
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-cliptest
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-cliptest
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-cliptest
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-content-protection
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-content-protection
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-content-protection
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-content-protection
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-debug
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-debug
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-debug
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-debug
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-desktop-shell
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-desktop-shell
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-desktop-shell
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-desktop-shell
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-dnd
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-dnd
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-dnd
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-dnd
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-eventdemo
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-eventdemo
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-eventdemo
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-eventdemo
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-flower
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-flower
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-flower
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-flower
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-fullscreen
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-fullscreen
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-fullscreen
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-fullscreen
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-image
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-image
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-image
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-image
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-info
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-info
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-ivi-shell-user-interface
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-ivi-shell-user-interface
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-ivi-shell-user-interface
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-ivi-shell-user-interface
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-keyboard
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-keyboard
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-keyboard
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-keyboard
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-multi-resource
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-multi-resource
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-launch
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-launch
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-presentation-shm
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-presentation-shm
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-multi-resource
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-multi-resource
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-resizor
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-resizor
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-output-mode
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-output-mode
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-scaler
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-scaler
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-resizor
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-resizor
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-screenshooter
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-screenshooter
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-scaler
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-scaler
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-damage
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-damage
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-screenshooter
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-screenshooter
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-dmabuf-egl
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-dmabuf-egl
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-dmabuf-egldevice
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-dmabuf-egldevice
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-dmabuf-egldevice
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-dmabuf-egldevice
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-egl
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-egl
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-dmabuf-feedback
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-dmabuf-feedback
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-pattern-hdr
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-pattern-hdr
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-egl
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-egl
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-shm
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-shm
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-im
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-im
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-touch
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-touch
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-shm
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-shm
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-smoke
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-smoke
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-touch
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-touch
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-stacking
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-stacking
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-smoke
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-smoke
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-subsurfaces
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-subsurfaces
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-stacking
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-stacking
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-terminal
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-terminal
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-subsurfaces
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-subsurfaces
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-transformed
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-transformed
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-tablet
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-tablet
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-terminal
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-terminal
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-touch-calibrator
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-touch-calibrator
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-transformed
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-transformed
           options:
             - ro
             - nosuid
@@ -1559,6 +1623,7 @@ devices:
         - path: /dev/v4l2-nvdec
         - path: /dev/dri/card0
         - path: /dev/dri/renderD128
+        - path: /dev/dri/renderD129
         - path: /dev/nvgpu/igpu0/as
         - path: /dev/nvgpu/igpu0/channel
         - path: /dev/nvgpu/igpu0/ctrl
@@ -1573,97 +1638,111 @@ devices:
         - path: /dev/nvgpu/igpu0/tsg
       hooks:
         - args:
-            - nvidia-ctk
-            - hook
+            - nvidia-cdi-hook
             - create-symlinks
-            - --link
+            - '--link'
             - /usr/lib/aarch64-linux-gnu/nvidia/nvidia_icd.json::/etc/vulkan/icd.d/nvidia_icd.json
-            - --link
+            - '--link'
             - ../nvidia/libnvidia-allocator.so::/usr/lib/aarch64-linux-gnu/gbm/nvidia-drm_gbm.so
-            - --link
+            - '--link'
             - libnvidia-allocator.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-allocator.so
-            - --link
+            - '--link'
             - ../nvidia/libnvidia-allocator.so::/usr/lib/aarch64-linux-gnu/gbm/tegra_gbm.so
-            - --link
+            - '--link'
             - ../nvidia/libnvidia-allocator.so::/usr/lib/aarch64-linux-gnu/gbm/tegra-udrm_gbm.so
-            - --link
+            - '--link'
             - 'nvidia/libcuda.so::/usr/lib/aarch64-linux-gnu/libcuda.so'
-            - --link
+            - '--link'
             - 'libcuda.so.1.1::/usr/lib/aarch64-linux-gnu/nvidia/libcuda.so'
-            - --link
+            - '--link'
             - nvidia/libnvcucompat.so::/usr/lib/aarch64-linux-gnu/libnvcucompat.so
-            - --link
+            - '--link'
             - 'nvidia/libnvcudla.so::/usr/lib/aarch64-linux-gnu/libnvcudla.so'
-            - --link
+            - '--link'
             - nvidia/libnvv4l2.so::/usr/lib/aarch64-linux-gnu/libv4l2.so.0.0.999999
-            - --link
+            - '--link'
             - nvidia/libnvv4lconvert.so::/usr/lib/aarch64-linux-gnu/libv4lconvert.so.0.0.999999
-            - --link
+            - '--link'
             - ../../../nvidia/libv4l2_nvargus.so::/usr/lib/aarch64-linux-gnu/libv4l/plugins/nv/libv4l2_nvargus.so
-            - --link
+            - '--link'
             - ../../../nvidia/libv4l2_nvcuvidvideocodec.so::/usr/lib/aarch64-linux-gnu/libv4l/plugins/nv/libv4l2_nvcuvidvideocodec.so
-            - --link
+            - '--link'
             - ../../../nvidia/libv4l2_nvvideocodec.so::/usr/lib/aarch64-linux-gnu/libv4l/plugins/nv/libv4l2_nvvideocodec.so
-            - --link
+            - '--link'
             - 'libcuda.so.1.1::/usr/lib/aarch64-linux-gnu/nvidia/libcuda.so.1'
-            - --link
+            - '--link'
             - libnvbufsurface.so.1.0.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so
-            - --link
+            - '--link'
             - libnvbufsurftransform.so.1.0.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurftransform.so
-            - --link
+            - '--link'
             - libnvdsbufferpool.so.1.0.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvdsbufferpool.so
-            - --link
+            - '--link'
             - libnvidia-egl-gbm.so.1.1.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-egl-gbm.so.1
-            - --link
+            - '--link'
             - libnvidia-egl-wayland.so.1.1.11::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-egl-wayland.so.1
-            - --link
-            - libnvidia-kms.so.540.3.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-kms.so
-            - --link
-            - libnvidia-nvvm.so.540.3.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-nvvm.so.4
-            - --link
-            - libnvidia-ptxjitcompiler.so.540.3.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-ptxjitcompiler.so.1
-            - --link
+            - '--link'
+            - libnvidia-kms.so.540.5.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-kms.so
+            - '--link'
+            - libnvidia-nvvm.so.540.5.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-nvvm.so.4
+            - '--link'
+            - libnvidia-ptxjitcompiler.so.540.5.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-ptxjitcompiler.so.1
+            - '--link'
             - libnvidia-vksc-core.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so
-            - --link
-            - libnvidia-vksc-core.so.540.3.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so.1
-            - --link
+            - '--link'
+            - libnvidia-vksc-core.so.540.5.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so.1
+            - '--link'
             - libnvid_mapper.so.1.0.0::/usr/lib/aarch64-linux-gnu/nvidia/libnvid_mapper.so
-            - --link
+            - '--link'
             - 'libnvscibuf.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libnvscibuf.so'
-            - --link
+            - '--link'
             - libnvscicommon.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libnvscicommon.so
-            - --link
+            - '--link'
             - libnvscistream.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libnvscistream.so
-            - --link
+            - '--link'
             - libnvscisync.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libnvscisync.so
-            - --link
+            - '--link'
             - 'libnvv4l2.so::/usr/lib/aarch64-linux-gnu/nvidia/libv4l2.so.0'
-            - --link
+            - '--link'
             - libnvv4lconvert.so::/usr/lib/aarch64-linux-gnu/nvidia/libv4lconvert.so.0
-            - --link
+            - '--link'
             - 'libvulkansc.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libvulkansc.so'
-            - --link
+            - '--link'
             - libvulkansc.so.1.0.10::/usr/lib/aarch64-linux-gnu/nvidia/libvulkansc.so.1
-            - --link
+            - '--link'
+            - libwayland-client.so.0.22.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-client.so.0
+            - '--link'
+            - libwayland-client.so.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-client.so
+            - '--link'
+            - libwayland-cursor.so.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-cursor.so
+            - '--link'
+            - libwayland-cursor.so.0.22.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-cursor.so.0
+            - '--link'
+            - libwayland-egl.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-egl.so
+            - '--link'
+            - libwayland-egl.so.1.22.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-egl.so.1
+            - '--link'
+            - libwayland-server.so.0.22.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-server.so.0
+            - '--link'
+            - libwayland-server.so.0::/usr/lib/aarch64-linux-gnu/nvidia/libwayland-server.so
+            - '--link'
             - ../../../lib/aarch64-linux-gnu/tegra-egl/nvidia.json::/usr/share/glvnd/egl_vendor.d/10_nvidia.json
-            - --link
-            - libGLX_nvidia.so.0::/usr/lib/aarch64-linux-gnu/nvidia/libGLX_indirect.so.0
-            - --link
+            - '--link'
             - 'libcuda.so.1::/usr/lib/aarch64-linux-gnu/nvidia/libcuda.so'
+            - '--link'
+            - libGLX_nvidia.so.0::/usr/lib/aarch64-linux-gnu/nvidia/libGLX_indirect.so.0
           hookName: createContainer
-          path: /usr/bin/nvidia-ctk
+          path: /usr/bin/nvidia-cdi-hook
         - args:
-            - nvidia-ctk
-            - hook
+            - nvidia-cdi-hook
             - update-ldcache
+            - '--folder'
+            - /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0
             - '--folder'
             - /usr/lib/aarch64-linux-gnu/nvidia
             - '--folder'
             - /usr/lib/aarch64-linux-gnu/tegra-egl
-            - '--folder'
-            - /usr/lib/aarch64-linux-gnu/nvidia/weston
           hookName: createContainer
-          path: /usr/bin/nvidia-ctk
+          path: /usr/bin/nvidia-cdi-hook
       mounts:
         - containerPath: /etc/nv_tegra_release
           hostPath: /etc/nv_tegra_release
@@ -1674,6 +1753,20 @@ devices:
             - bind
         - containerPath: /dev/dri/by-path
           hostPath: /dev/dri/by-path
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/bin/nvidia-cuda-mps-control
+          hostPath: /usr/bin/nvidia-cuda-mps-control
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/bin/nvidia-cuda-mps-server
+          hostPath: /usr/bin/nvidia-cuda-mps-server
           options:
             - ro
             - nosuid
@@ -2036,43 +2129,43 @@ devices:
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-eglcore.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-eglcore.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-eglcore.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-eglcore.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glcore.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glcore.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glcore.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glcore.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glsi.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glsi.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glsi.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glsi.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glvkspirv.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glvkspirv.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glvkspirv.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-glvkspirv.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-gpucomp.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-gpucomp.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-gpucomp.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-gpucomp.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-kms.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-kms.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-kms.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-kms.so.540.5.0
           options:
             - ro
             - nosuid
@@ -2085,43 +2178,43 @@ devices:
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-nvvm.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-nvvm.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-nvvm.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-nvvm.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-ptxjitcompiler.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-ptxjitcompiler.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-ptxjitcompiler.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-ptxjitcompiler.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rmapi-tegra.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rmapi-tegra.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rmapi-tegra.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rmapi-tegra.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rtcore.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rtcore.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rtcore.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-rtcore.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-tls.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-tls.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-tls.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-tls.so.540.5.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so.540.3.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so.540.3.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so.540.5.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvidia-vksc-core.so.540.5.0
           options:
             - ro
             - nosuid
@@ -2325,13 +2418,6 @@ devices:
             - bind
         - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvofsdk.so
           hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvofsdk.so
-          options:
-            - ro
-            - nosuid
-            - nodev
-            - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvoggopus.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libnvoggopus.so
           options:
             - ro
             - nosuid
@@ -2652,6 +2738,34 @@ devices:
             - nosuid
             - nodev
             - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-client.so.0.22.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-client.so.0.22.0
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-cursor.so.0.22.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-cursor.so.0.22.0
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-egl.so.1.22.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-egl.so.1.22.0
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-server.so.0.22.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/libwayland-server.so.0.22.0
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
         - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/nvidia_icd.json
           hostPath: /usr/lib/aarch64-linux-gnu/nvidia/nvidia_icd.json
           options:
@@ -2694,13 +2808,6 @@ devices:
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/firmware/tegra19x/nvhost_nvdec040_ns.fw
-          hostPath: /lib/firmware/tegra19x/nvhost_nvdec040_ns.fw
-          options:
-            - ro
-            - nosuid
-            - nodev
-            - bind
         - containerPath: /usr/lib/firmware/tegra23x/nvhost_nvdec050_desc_prod.bin
           hostPath: /lib/firmware/tegra23x/nvhost_nvdec050_desc_prod.bin
           options:
@@ -2708,362 +2815,383 @@ devices:
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/share/doc/nvidia-tegra/LICENSE.nvidia-smi
-          hostPath: /usr/share/doc/nvidia-tegra/LICENSE.nvidia-smi
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/EGLWLInputEventExample
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/EGLWLInputEventExample
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/EGLWLInputEventExample
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/EGLWLInputEventExample
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/EGLWLMockNavigation
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/EGLWLMockNavigation
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/EGLWLMockNavigation
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/EGLWLMockNavigation
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/LayerManagerControl
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/LayerManagerControl
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/LayerManagerControl
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/LayerManagerControl
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/color-lcms.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/color-lcms.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/desktop-shell.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/desktop-shell.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/desktop-shell.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/desktop-shell.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/drm-backend.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/drm-backend.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/drm-backend.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/drm-backend.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/fullscreen-shell.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/fullscreen-shell.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/fullscreen-shell.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/fullscreen-shell.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/gl-renderer.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/gl-renderer.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/gl-renderer.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/gl-renderer.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/hmi-controller.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/hmi-controller.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/headless-backend.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/headless-backend.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/ivi-controller.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/ivi-controller.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/hmi-controller.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/hmi-controller.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/ivi-shell.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/ivi-shell.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/ivi-controller.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/ivi-controller.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmClient.so.2.2.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmClient.so.2.2.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/ivi-shell.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/ivi-shell.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmCommon.so.2.2.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmCommon.so.2.2.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmClient.so.2.3.2
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmClient.so.2.3.2
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmControl.so.2.2.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmControl.so.2.2.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmCommon.so.2.3.2
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmCommon.so.2.3.2
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmInput.so.2.2.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libilmInput.so.2.2.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmControl.so.2.3.2
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmControl.so.2.3.2
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libweston-6.so.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libweston-6.so.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmInput.so.2.3.2
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libilmInput.so.2.3.2
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libweston-desktop-6.so.0
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/libweston-desktop-6.so.0
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libweston-13.so.0
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/libweston-13.so.0
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/simple-weston-client
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/simple-weston-client
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/simple-weston-client
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/simple-weston-client
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/spring-tool
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/spring-tool
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/spring-tool
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/spring-tool
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/wayland-backend.so
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/wayland-backend.so
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/wayland-backend.so
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/wayland-backend.so
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-calibrator
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-calibrator
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-calibrator
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-calibrator
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-clickdot
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-clickdot
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-clickdot
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-clickdot
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-cliptest
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-cliptest
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-cliptest
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-cliptest
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-content-protection
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-content-protection
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-content-protection
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-content-protection
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-debug
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-debug
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-debug
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-debug
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-desktop-shell
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-desktop-shell
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-desktop-shell
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-desktop-shell
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-dnd
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-dnd
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-dnd
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-dnd
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-eventdemo
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-eventdemo
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-eventdemo
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-eventdemo
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-flower
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-flower
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-flower
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-flower
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-fullscreen
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-fullscreen
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-fullscreen
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-fullscreen
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-image
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-image
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-image
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-image
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-info
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-info
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-ivi-shell-user-interface
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-ivi-shell-user-interface
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-ivi-shell-user-interface
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-ivi-shell-user-interface
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-keyboard
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-keyboard
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-keyboard
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-keyboard
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-multi-resource
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-multi-resource
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-launch
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-launch
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-presentation-shm
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-presentation-shm
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-multi-resource
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-multi-resource
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-resizor
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-resizor
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-output-mode
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-output-mode
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-scaler
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-scaler
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-resizor
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-resizor
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-screenshooter
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-screenshooter
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-scaler
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-scaler
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-damage
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-damage
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-screenshooter
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-screenshooter
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-dmabuf-egl
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-dmabuf-egl
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-dmabuf-egldevice
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-dmabuf-egldevice
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-dmabuf-egldevice
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-dmabuf-egldevice
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-egl
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-egl
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-dmabuf-feedback
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-dmabuf-feedback
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-pattern-hdr
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-pattern-hdr
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-egl
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-egl
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-shm
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-shm
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-im
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-im
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-touch
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-simple-touch
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-shm
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-shm
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-smoke
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-smoke
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-touch
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-simple-touch
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-stacking
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-stacking
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-smoke
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-smoke
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-subsurfaces
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-subsurfaces
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-stacking
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-stacking
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-terminal
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-terminal
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-subsurfaces
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-subsurfaces
           options:
             - ro
             - nosuid
             - nodev
             - bind
-        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-transformed
-          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston/weston-transformed
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-tablet
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-tablet
           options:
             - ro
             - nosuid
             - nodev
             - bind
-    name: tegra
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-terminal
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-terminal
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-touch-calibrator
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-touch-calibrator
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+        - containerPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-transformed
+          hostPath: /usr/lib/aarch64-linux-gnu/nvidia/weston-13.0/weston-transformed
+          options:
+            - ro
+            - nosuid
+            - nodev
+            - bind
+    name: all
 kind: nvidia.com/gpu

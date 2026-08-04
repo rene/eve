@@ -14,6 +14,7 @@ export LD_LIBRARY_PATH="/hostfs/lib"
 # Setup modules and devices
 modprobe nvidia
 modprobe nvidia_modeset
+modprobe nvidia_drm modeset=1 fbdev=1
 modprobe nvhost_capture
 modprobe nvhost_isp5
 modprobe nvhost_nvcsi_t194
