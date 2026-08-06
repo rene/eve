@@ -974,6 +974,7 @@ pkg/kernel:
 # Force a rebuild via the target-specific FORCE_BUILD; Make propagates it to
 # the eve-external-boot-image prerequisite that actually runs `linuxkit pkg`.
 pkg/external-boot-image: FORCE_BUILD := --force
+pkg/external-boot-image/Dockerfile: override KERNEL_TAG := $(patsubst docker.io/%,%,$(KERNEL_TAG))
 
 # Same trap as pkg/external-boot-image, one level up: pkg/kube bundles
 # pkg/kube/external-boot-image.tar (a generated artifact, gitignored — see
