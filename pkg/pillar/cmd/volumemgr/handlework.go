@@ -6,6 +6,7 @@ package volumemgr
 // Interface to worker to run the create and destroy in separate goroutines
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/lf-edge/eve/pkg/pillar/types"
@@ -77,21 +78,56 @@ func AddWorkCreate(ctx *volumemgrContext, status *types.VolumeStatus) {
 	}
 }
 
-// AddWorkLoad adds a Work job to load an image and blobs into CAS
-func AddWorkLoad(ctx *volumemgrContext, status *types.ContentTreeStatus) {
+// AddWorkLoad adds a Work job to load an image and blobs into CAS.
+// Returns an error if the job could not be handed to the worker pool, in
+// which case no worker owns the content tree and the caller must undo
+// whatever state it committed in anticipation of the load. A job that is
+// already in progress for this key counts as success, so callers stay
+// idempotent.
+func AddWorkLoad(ctx *volumemgrContext, status *types.ContentTreeStatus) error {
 	d := casIngestWorkDescription{
 		status: *status,
 	}
 	w := worker.Work{Kind: workIngest, Key: status.Key(), Description: d}
-	// Don't fail on errors to make idempotent (Submit returns an error if
-	// the work was already submitted)
+	if ctx.pendingIngest == nil {
+		ctx.pendingIngest = make(map[string]bool)
+	}
 	done, err := ctx.worker.TrySubmit(w)
 	if err != nil {
-		log.Errorf("TrySubmit %s failed: %s", status.Key(), err)
-	} else if !done {
-		log.Fatalf("Failed to submit work due to queue length for %s",
-			status.Key())
+		if _, inProgress := err.(*worker.JobInProgressError); inProgress {
+			ctx.pendingIngest[status.Key()] = true
+			return nil
+		}
+		log.Errorf("AddWorkLoad(%s): TrySubmit failed: %s", status.Key(), err)
+		return err
 	}
+	if !done {
+		log.Errorf("AddWorkLoad(%s): TrySubmit could not queue the work",
+			status.Key())
+		return fmt.Errorf("worker pool could not accept the ingest job")
+	}
+	ctx.pendingIngest[status.Key()] = true
+	return nil
+}
+
+// ingestInFlightFor reports whether some content tree with an accepted, not
+// yet completed CAS ingest job carries this blob. A blob sitting in LOADING
+// that no in-flight job covers has lost its worker; treating such a blob as
+// busy is what turns a refused submit into a permanent stall for every other
+// content tree sharing it.
+func ingestInFlightFor(ctx *volumemgrContext, sha string) bool {
+	for key := range ctx.pendingIngest {
+		ctStatus := ctx.LookupContentTreeStatus(key)
+		if ctStatus == nil {
+			continue
+		}
+		for _, blobSha := range ctStatus.Blobs {
+			if blobSha == sha {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // AddWorkPrepare adds a Work job to create a volume
@@ -294,6 +330,9 @@ func processVolumeWorkResult(ctxPtr interface{}, res worker.WorkResult) error {
 		maybeDeleteVolume(ctx, status)
 		reevaluatePendingVolumes(ctx)
 	}
+	// The worker pool is shared with CAS ingest, so a completed volume job
+	// may be what lets a deferred image load through.
+	reevaluatePendingContentTrees(ctx)
 	return nil
 }
 
@@ -302,6 +341,8 @@ func processVolumePrepareResult(ctxPtr interface{}, res worker.WorkResult) error
 	ctx := ctxPtr.(*volumemgrContext)
 	d := res.Description.(volumeWorkDescription)
 	updateVolumeStatus(ctx, d.status.VolumeID)
+	// See processVolumeWorkResult: this frees a slot in the shared pool.
+	reevaluatePendingContentTrees(ctx)
 	return nil
 }
 
@@ -309,6 +350,7 @@ func processVolumePrepareResult(ctxPtr interface{}, res worker.WorkResult) error
 func processCasIngestWorkResult(ctxPtr interface{}, res worker.WorkResult) error {
 	ctx := ctxPtr.(*volumemgrContext)
 	d := res.Description.(casIngestWorkDescription)
+	delete(ctx.pendingIngest, d.status.Key())
 	// loaded has the hashes of the blobs we loaded; publicise their new states.
 	blobs := lookupBlobStatuses(ctx, d.loaded...)
 	for _, blob := range blobs {
@@ -316,6 +358,10 @@ func processCasIngestWorkResult(ctxPtr interface{}, res worker.WorkResult) error
 		publishBlobStatus(ctx, blob)
 	}
 	updateStatusByBlob(ctx, d.status.Blobs...)
+	// A pool slot just freed up: give any content tree that was refused a
+	// worker another chance. The pool is shared with volume create/prepare,
+	// so those result handlers do the same.
+	reevaluatePendingContentTrees(ctx)
 	return nil
 }
 

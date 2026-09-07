@@ -401,13 +401,27 @@ func doUpdateContentTree(ctx *volumemgrContext, status *types.ContentTreeStatus)
 		blobStatuses := lookupBlobStatuses(ctx, status.Blobs...)
 		root := blobStatuses[0]
 		if root.State == types.LOADING {
-			log.Functionf("Found root blob %s in LOADING; defer", root.Key())
-			return changed, false
+			// Only defer if that load is really running. An orphaned LOADING
+			// flag -- left by a content tree whose submit was refused, or by a
+			// volumemgr restart -- would otherwise park us here forever.
+			if ingestInFlightFor(ctx, root.Sha256) {
+				log.Functionf("Found root blob %s in LOADING; defer", root.Key())
+				return changed, false
+			}
+			log.Noticef("doUpdateContentTree(%s): root blob %s in LOADING with no "+
+				"ingest in flight; taking it over", status.Key(), root.Sha256)
 		}
+		// casIngestWorker picks the blobs to ingest by filtering on
+		// State == LOADING, so the transition has to happen before the work is
+		// submitted. Remember exactly which blobs we moved, so that a refused
+		// submit can put them back: a blob that was already LOADING belongs to
+		// another content tree's live worker and must not be touched.
+		claimed := []*types.BlobStatus{}
 		for _, b := range blobStatuses {
 			if b.State == types.VERIFIED {
 				b.State = types.LOADING
 				publishBlobStatus(ctx, b)
+				claimed = append(claimed, b)
 			}
 		}
 
@@ -419,7 +433,21 @@ func doUpdateContentTree(ctx *volumemgrContext, status *types.ContentTreeStatus)
 		status.State = types.LOADING
 		publishContentTreeStatus(ctx, status)
 
-		AddWorkLoad(ctx, status)
+		if err := AddWorkLoad(ctx, status); err != nil {
+			// Nothing owns these blobs and no work result will ever arrive.
+			// Leaving them in LOADING would also park every other content
+			// tree sharing them on the root-blob check above, so release the
+			// claim and drop back to VERIFIED. reevaluatePendingContentTrees
+			// retries once a pool slot frees up.
+			log.Warnf("doUpdateContentTree(%s): load deferred, releasing claim: %s",
+				status.Key(), err)
+			for _, b := range claimed {
+				b.State = types.VERIFIED
+				publishBlobStatus(ctx, b)
+			}
+			status.State = types.VERIFIED
+			publishContentTreeStatus(ctx, status)
+		}
 
 		return changed, false
 	}
@@ -429,6 +457,23 @@ func doUpdateContentTree(ctx *volumemgrContext, status *types.ContentTreeStatus)
 		log.Functionf("doUpdateContentTree(%s): ContentTree status is LOADING", status.Key())
 		// get the work result - see if it succeeded
 		wres := popCasIngestWorkResult(ctx, status.Key())
+		if wres == nil && !ctx.pendingIngest[status.Key()] {
+			// No result and no job: the ingest was never queued, or volumemgr
+			// restarted while it was running. Unless the blobs happen to have
+			// been loaded by someone else, nothing will ever advance this, so
+			// go back to VERIFIED and let the branch above resubmit.
+			blobStatuses := lookupBlobStatuses(ctx, status.Blobs...)
+			for _, blob := range blobStatuses {
+				if blob.State != types.LOADED {
+					log.Noticef("doUpdateContentTree(%s): in LOADING with no ingest "+
+						"in flight; resetting to VERIFIED to retry", status.Key())
+					status.State = types.VERIFIED
+					publishContentTreeStatus(ctx, status)
+					changed = true
+					return changed, false
+				}
+			}
+		}
 		if wres != nil {
 			log.Functionf("doUpdateContentTree(%s): IngestWorkResult found", status.Key())
 			if wres.Error != nil {
