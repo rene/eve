@@ -151,6 +151,11 @@ func (gs *GlobalStatus) UpdateItemValuesFromGlobalConfig(gc ConfigItemValueMap) 
 // A value of zero means we should use the default
 // All times are in seconds.
 
+// DefaultVolumemgrWorkerPoolSize is the default for VolumemgrWorkerPoolSize.
+// volumemgr needs a pool size before global config has been received, so it
+// starts here and is adjusted once the config arrives.
+const DefaultVolumemgrWorkerPoolSize = 20
+
 // GlobalSettingKey - Constants of all global setting keys
 type GlobalSettingKey string
 
@@ -256,6 +261,15 @@ const (
 	// BlobDownloadMaxRetries global setting key
 	// how many times EVE will retry to download a blob if its checksum is not verified
 	BlobDownloadMaxRetries GlobalSettingKey = "blob.download.max.retries"
+
+	// VolumemgrWorkerPoolSize global setting key
+	// maximum number of concurrent volumemgr background jobs: loading images
+	// into the CAS, creating volumes and preparing volumes all draw on this
+	// single pool. Work that cannot be submitted is deferred and retried, so
+	// this bounds throughput rather than correctness. Raise it on nodes
+	// running many app instances; each concurrent CAS ingest streams a layer
+	// through pillar, so the practical ceiling is pillar's memory cgroup.
+	VolumemgrWorkerPoolSize GlobalSettingKey = "volumemgr.worker.pool.size"
 
 	// Bool Items
 	// UsbAccess global setting key
@@ -1228,6 +1242,9 @@ func NewConfigItemSpecMap() ConfigItemSpecMap {
 	configItemSpecMap.AddIntItem(LogRemainToSendMBytes, 2048, 10, 0xFFFFFFFF)
 	configItemSpecMap.AddIntItem(DownloadMaxPortCost, 0, 0, 255)
 	configItemSpecMap.AddIntItem(BlobDownloadMaxRetries, 5, 1, 10)
+	// VolumemgrWorkerPoolSize - default matches the historical hardcoded
+	// value so this change is behaviour-neutral until an operator raises it.
+	configItemSpecMap.AddIntItem(VolumemgrWorkerPoolSize, DefaultVolumemgrWorkerPoolSize, 1, 200)
 
 	// Goroutine Leak Detection section
 	configItemSpecMap.AddIntItem(GoroutineLeakDetectionThreshold, 5000, 1, 0xFFFFFFFF)

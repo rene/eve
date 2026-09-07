@@ -586,3 +586,53 @@ func getStacks(all bool) string {
 	buf = buf[:stackSize]
 	return string(buf)
 }
+
+// TestSetMaxWorkers verifies the contract volumemgr relies on when it defers
+// and retries a refused job: at the ceiling TrySubmit reports the refusal as
+// an error (not as a silent no-op), and raising the ceiling makes the same
+// job submittable without recreating the pool.
+//
+// This is the condition behind the field failure where a saturated pool left
+// eleven app instances stuck: the refusal must be observable to the caller,
+// because the caller has state to undo.
+func TestSetMaxWorkers(t *testing.T) {
+	ctx, wp, _ := setupPool(1)
+	testname := "testsetmaxworkers"
+	defer wp.Done()
+
+	// Fill the single slot with a job that is still running afterwards.
+	w1 := worker.Work{Kind: "test", Key: testname + "1", Description: sleep4}
+	done, err := wp.TrySubmit(w1)
+	assert.True(t, done)
+	assert.Nil(t, err)
+	assert.Equal(t, 1, wp.NumWorkers())
+
+	// At the ceiling the refusal must surface as an error. A caller that
+	// treats (false, err) as success leaves its state machine stranded.
+	w2 := worker.Work{Kind: "test", Key: testname + "2", Description: sleep1}
+	done, err = wp.TrySubmit(w2)
+	assert.False(t, done)
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "maxWorkers")
+	assert.Equal(t, 1, wp.NumWorkers())
+
+	// Raising the ceiling admits the very same job.
+	wp.SetMaxWorkers(2)
+	done, err = wp.TrySubmit(w2)
+	assert.True(t, done)
+	assert.Nil(t, err)
+	assert.Equal(t, 2, wp.NumWorkers())
+
+	// Setting the same value again is a no-op, and lowering the ceiling does
+	// not disturb workers that are already running.
+	wp.SetMaxWorkers(2)
+	wp.SetMaxWorkers(1)
+	assert.Equal(t, 2, wp.NumWorkers())
+
+	// Drain both results so the pool shuts down cleanly.
+	for i := 0; i < 2; i++ {
+		proc := <-wp.MsgChan()
+		proc.Process(ctx, true)
+	}
+	assert.Equal(t, 0, wp.NumPending())
+}

@@ -449,8 +449,10 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 	populateExistingVolumesFormatObjects(&ctx, volumeEncryptedDirName)
 	populateExistingVolumesFormatObjects(&ctx, volumeClearDirName)
 
-	// Create the background worker
-	ctx.worker = worker.NewPool(log, &ctx, 20, map[string]worker.Handler{
+	// Create the background worker. The ceiling is adjustable at runtime via
+	// the VolumemgrWorkerPoolSize config item, but global config has not
+	// arrived yet, so start at the default.
+	ctx.worker = worker.NewPool(log, &ctx, types.DefaultVolumemgrWorkerPoolSize, map[string]worker.Handler{
 		workCreate:  {Request: volumeWorker, Response: processVolumeWorkResult},
 		workIngest:  {Request: casIngestWorker, Response: processCasIngestWorkResult},
 		workPrepare: {Request: volumePrepareWorker, Response: processVolumePrepareResult},
@@ -946,6 +948,13 @@ func handleGlobalConfigImpl(ctxArg interface{}, key string,
 		// Set max retries for blob download from global config
 		if gcp.GlobalValueInt(types.BlobDownloadMaxRetries) != 0 {
 			blobDownloadMaxRetries = gcp.GlobalValueInt(types.BlobDownloadMaxRetries)
+		}
+		// Resize the background worker pool. SetMaxWorkers is pool-only, so
+		// this is a no-op for any other Worker implementation.
+		if n := gcp.GlobalValueInt(types.VolumemgrWorkerPoolSize); n != 0 {
+			if pool, ok := ctx.worker.(*worker.Pool); ok {
+				pool.SetMaxWorkers(int(n))
+			}
 		}
 		maybeUpdateConfigItems(ctx, gcp)
 		ctx.globalConfig = gcp
