@@ -57,7 +57,7 @@ RUN mkdir -p /nvidia-firmware && \
 ENV RTL8822_FW_VERSION=ca9f4e199efbf8c377e8a1769ba5b05b23f92c82
 ADD https://github.com/lwfinger/rtw88.git#${RTL8822_FW_VERSION} /rtw88
 
-ENV LINUX_FIRMWARE_VERSION=20240811
+ENV LINUX_FIRMWARE_VERSION=20260110
 ENV LINUX_FIRMWARE_URL=https://cdn.kernel.org/pub/linux/kernel/firmware/linux-firmware
 ADD ${LINUX_FIRMWARE_URL}-${LINUX_FIRMWARE_VERSION}.tar.gz /linux-firmware.tar.gz
 RUN mkdir /linux-firmware &&\
@@ -80,10 +80,8 @@ RUN ln -s ../cypress/cyfmac43455-sdio.clm_blob /lib/firmware/brcm/brcmfmac43455-
 RUN ln -s ../cypress/cyfmac43455-sdio.clm_blob /lib/firmware/brcm/brcmfmac43455-sdio.raspberrypi,4-model-b.clm_blob
 RUN ln -s ../cypress/cyfmac43455-sdio.bin /lib/firmware/brcm/brcmfmac43455-sdio.raspberrypi,500.bin
 RUN ln -s ../cypress/cyfmac43455-sdio.clm_blob /lib/firmware/brcm/brcmfmac43455-sdio.raspberrypi,500.clm_blob
-RUN ln -s brcmfmac43455-sdio.raspberrypi,4-model-b.txt /lib/firmware/brcm/brcmfmac43455-sdio.raspberrypi,500.txt
 RUN ln -s ../cypress/cyfmac43455-sdio.bin /lib/firmware/brcm/brcmfmac43455-sdio.raspberrypi,5-compute-module.bin
 RUN ln -s ../cypress/cyfmac43455-sdio.clm_blob /lib/firmware/brcm/brcmfmac43455-sdio.raspberrypi,5-compute-module.clm_blob
-RUN ln -s brcmfmac43455-sdio.raspberrypi,4-model-b.txt /lib/firmware/brcm/brcmfmac43455-sdio.raspberrypi,5-compute-module.txt
 RUN ln -s ../cypress/cyfmac43455-sdio.bin /lib/firmware/brcm/brcmfmac43455-sdio.raspberrypi,5-model-b.bin
 RUN ln -s ../cypress/cyfmac43455-sdio.clm_blob /lib/firmware/brcm/brcmfmac43455-sdio.raspberrypi,5-model-b.clm_blob
 
@@ -228,6 +226,14 @@ COPY --from=build /rtw88/*.bin /lib/firmware/rtw88/
 # Intel ICE firmware.
 COPY --from=build /lib/firmware/intel/ice /lib/firmware/intel/ice
 COPY --from=build /lib/firmware/hailo /lib/firmware/hailo
+# MediaTek MT7925 WiFi/BT
+COPY --from=build /lib/firmware/mediatek/mt7925 /lib/firmware/mediatek/mt7925
+# AMD Rembrandt iGPU (gc_10_3_6 / psp_13_0_5)
+COPY --from=build /lib/firmware/amdgpu/psp_13_0_5* /lib/firmware/amdgpu/
+COPY --from=build /lib/firmware/amdgpu/dcn_3_1_5* /lib/firmware/amdgpu/
+COPY --from=build /lib/firmware/amdgpu/gc_10_3_6* /lib/firmware/amdgpu/
+COPY --from=build /lib/firmware/amdgpu/sdma_5_2_6* /lib/firmware/amdgpu/
+COPY --from=build /lib/firmware/amdgpu/vcn_3_1_2* /lib/firmware/amdgpu/
 
 ARG TARGETARCH
 
