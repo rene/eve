@@ -3,6 +3,8 @@
 
 FROM ubuntu:26.04 AS builder
 
+ARG UBUNTU_SNAPSHOT=20260901T000000Z
+
 ENV PKGS="build-essential \
 	gawk \
 	autoconf \
@@ -23,6 +25,15 @@ ENV PKGS="build-essential \
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# the base image ships no ca-certificates and the snapshot service is
+# https-only; without the certs apt-get update ignores the mirror silently
+RUN apt-get update && apt-get -y install ca-certificates
+# all three pockets must be pinned: the base image already contains newer
+# packages from -updates/-security than the frozen release pocket
+RUN rm -Rf /etc/apt/sources.list.d && \
+    for p in resolute resolute-updates resolute-security; do \
+        echo "deb https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT} $p main restricted universe multiverse"; \
+    done > /etc/apt/sources.list
 RUN apt-get update
 RUN apt-get -y install apt-file dpkg-dev strace
 RUN apt-file update
@@ -31,9 +42,26 @@ RUN mkdir -p /mirror/archives
 
 RUN apt-get -y install debootstrap
 WORKDIR /root
-RUN debootstrap --cache-dir=/mirror/archives --variant=minbase --arch=amd64 resolute /out
+# ca-certificates is included so apt inside /out can keep talking to the
+# https-only snapshot until its sources are switched to the local mirror.
+# the snapshot service intermittently answers 5xx and debootstrap, unlike
+# apt, does not retry failed downloads, so rerun the whole bootstrap;
+# --cache-dir carries already-fetched debs over to the next attempt
+RUN i=0; until debootstrap --cache-dir=/mirror/archives --variant=minbase \
+        --arch=amd64 --include=ca-certificates resolute /out \
+        "https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}"; do \
+        i=$((i+1)); [ "$i" -ge 5 ] && exit 1; \
+        rm -Rf /out; sleep 15; \
+    done
 
+# debootstrap can only bootstrap from the frozen release pocket; point /out
+# at all three pinned pockets and dist-upgrade to the snapshot's current state
+RUN for p in resolute resolute-updates resolute-security; do \
+        echo "deb https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT} $p main"; \
+    done > /out/etc/apt/sources.list
 RUN chroot /out apt-get update
+RUN chroot /out apt-get -y dist-upgrade
+
 RUN chroot /out apt-get purge --allow-remove-essential -y procps
 # findutils sed libbsd0 sensible-utils are still needed to install further packages
 RUN chroot /out apt-get purge --allow-remove-essential -y gawk login login.defs bsdutils readline-common libsemanage2 mount bash gzip e2fsprogs login.defs ncurses-base ncurses-bin libext2fs2t64 sysvinit-utils procps logsave passwd

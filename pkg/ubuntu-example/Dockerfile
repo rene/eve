@@ -1,4 +1,4 @@
-FROM lfedge/eve-ubuntu:0a291748ed6118508d76df22a2bb24234de66bde AS ubuntu
+FROM lfedge/eve-ubuntu:8872c745c61eab5a8c7a4605791d7c96fb3cd20e AS ubuntu
 FROM ubuntu AS build
 
 ENV PKGS="curl"
