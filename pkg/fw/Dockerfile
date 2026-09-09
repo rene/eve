@@ -234,6 +234,14 @@ COPY --from=build /lib/firmware/amdgpu/dcn_3_1_5* /lib/firmware/amdgpu/
 COPY --from=build /lib/firmware/amdgpu/gc_10_3_6* /lib/firmware/amdgpu/
 COPY --from=build /lib/firmware/amdgpu/sdma_5_2_6* /lib/firmware/amdgpu/
 COPY --from=build /lib/firmware/amdgpu/vcn_3_1_2* /lib/firmware/amdgpu/
+# Realtek RTL8922AE Wi-Fi 7 (HP OMEN, Arrow Lake-S)
+COPY --from=build /lib/firmware/rtw89/rtw8922a_fw*.bin /lib/firmware/rtw89/
+# Realtek RTL8922AU Bluetooth (same combo card, USB 0bda:b892)
+COPY --from=build /lib/firmware/rtl_bt/rtl8922au_* /lib/firmware/rtl_bt/
+# Intel Arrow Lake NPU (intel_vpu / ivpu)
+COPY --from=build /lib/firmware/intel/vpu/vpu_37xx_v1.bin /lib/firmware/intel/vpu/
+# Intel Arrow Lake-S / Meteor Lake iGPU (i915: GuC, HuC, DMC, GSC)
+COPY --from=build /lib/firmware/i915/mtl_* /lib/firmware/i915/
 
 ARG TARGETARCH
 
