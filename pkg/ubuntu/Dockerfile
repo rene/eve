@@ -3,6 +3,7 @@
 
 FROM ubuntu:26.04 AS builder
 
+ARG TARGETARCH
 ARG UBUNTU_SNAPSHOT=20260901T000000Z
 
 ENV PKGS="build-essential \
@@ -48,9 +49,9 @@ WORKDIR /root
 # apt, does not retry failed downloads, so rerun the whole bootstrap;
 # --cache-dir carries already-fetched debs over to the next attempt
 RUN i=0; until debootstrap --cache-dir=/mirror/archives --variant=minbase \
-        --arch=amd64 --include=ca-certificates resolute /out \
+        --arch=${TARGETARCH} --include=ca-certificates resolute /out \
         "https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}"; do \
-        i=$((i+1)); [ "$i" -ge 5 ] && exit 1; \
+        i=$((i+1)); [ "$i" -ge 50 ] && exit 1; \
         rm -Rf /out; sleep 15; \
     done
 
