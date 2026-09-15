@@ -1,0 +1,161 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Renê de Souza Pinto <rene@renesp.com.br>
+Date: Mon, 15 Sep 2026 12:00:00 +0000
+Subject: [PATCH] vfio/igd: deny guest display DC-state requests on an assigned
+ iGPU
+
+DC5, DC6 and DC9 power down the entire display engine.  Coming back out of
+them is a hardware sequence driven by the display microcontroller (DMC),
+which restores the register state that was lost on the way in.  The DMC
+firmware is loaded by the host graphics driver, not by the guest, so on an
+assigned iGPU the guest can request a DC state that nothing is then able to
+bring the display engine back out of.  A CPU access to a display register
+after that never completes and the machine stops dead: no MCE, no panic, no
+watchdog reset, nothing in any log.
+
+Observed on a Raptor Lake-P iGPU (8086:a721 at 0000:00:02.0) assigned to a
+Windows guest on EVE-OS.  In a 48-minute qemu trace ending in one such hang
+the guest cycled DC_STATE_EN 694 times while re-programming the display, one
+cycle every 4.2 s, and the host died 1.4 s after the last one - inside an
+ordinary 60 Hz vblank interrupt handler reading GEN8_MASTER_IRQ, with the
+trace file truncated mid-record by the power cycle.  No PCI power-state
+transition was involved: the last PMCSR write was 21.6 minutes earlier.  A
+second hang in the same session sequence went through D3hot instead, which is
+a separate problem with a separate fix on the host side; this patch addresses
+only the display path.
+
+Deny every DC-state request: mask the request bits out of guest writes and
+let reads through untouched, so the guest sees a display engine that simply
+never enters a DC state.  DC states are a power optimisation and a driver
+that does not get one keeps working - i915 logs "Requested DC state %x, got
+%x" and carries on - so the cost here is display idle power, not function.
+
+Bit 31 is not documented in i915, but the guest toggles it in lockstep with
+the DC allow/disallow sequence (694 set and 689 cleared in the trace above),
+so it is masked as a request bit as well.  Everything outside the mask,
+including the HOLD_PHY_*_LATCH bits, is passed through unchanged.
+
+The register sits on a BAR0 page that the DBUF_CTL quirk already traps, so
+this adds no new vmexits.
+
+Signed-off-by: Renê de Souza Pinto <rene@renesp.com.br>
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ hw/vfio/igd.c | 95 +++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 95 insertions(+)
+
+diff --git a/tools/qemu-xen/hw/vfio/igd.c b/tools/qemu-xen/hw/vfio/igd.c
+index 8997611920..b1d40e3f27 100644
+--- a/tools/qemu-xen/hw/vfio/igd.c
++++ b/tools/qemu-xen/hw/vfio/igd.c
+@@ -527,6 +527,80 @@ static const MemoryRegionOps igd_dbuf_ctl_ops = {
+     .endianness = DEVICE_LITTLE_ENDIAN,
+ };
+ 
++/*
++ * IGD BAR0 DC_STATE_EN clamp quirk.
++ *
++ * DC5/DC6/DC9 power down the whole display engine, and the exit sequence is
++ * run by the display microcontroller (DMC) using firmware the *host* graphics
++ * driver loaded.  An assigned guest drives DC_STATE_EN itself, so it can ask
++ * for a state the display engine cannot be brought back out of; the next CPU
++ * access to a display register then never completes and the host dies
++ * silently.
++ *
++ * Deny the requests.  Reads pass through, so the guest observes a display
++ * engine that never enters a DC state - which is exactly what the hardware
++ * will now do.  DC states are a power optimisation, so a driver that is
++ * refused one keeps working.
++ *
++ * Bit 31 is undocumented in i915 but the observed guest toggles it together
++ * with the DC allow/disallow sequence, so it is treated as a request bit too.
++ * Bits outside the mask are passed through untouched.
++ */
++#define IGD_DC_STATE_EN             0x45504
++#define IGD_DC_STATE_EN_UPTO_DC5    (1u << 0)
++#define IGD_DC_STATE_EN_UPTO_DC6    (2u << 0)
++#define IGD_DC_STATE_EN_DC9         (1u << 3)
++#define IGD_DC_STATE_EN_DC3CO       (1u << 30)
++#define IGD_DC_STATE_EN_UNDOC31     (1u << 31)
++#define IGD_DC_STATE_REQUEST_MASK   (IGD_DC_STATE_EN_UPTO_DC5 | \
++                                     IGD_DC_STATE_EN_UPTO_DC6 | \
++                                     IGD_DC_STATE_EN_DC9 |      \
++                                     IGD_DC_STATE_EN_DC3CO |    \
++                                     IGD_DC_STATE_EN_UNDOC31)
++
++typedef struct IGDDcStateQuirk {
++    VFIOPCIDevice *vdev;
++    uint32_t bar_offset;    /* offset within BAR0 MMIO */
++    uint8_t bar;
++} IGDDcStateQuirk;
++
++static uint64_t igd_dc_state_read(void *opaque, hwaddr addr, unsigned size)
++{
++    IGDDcStateQuirk *q = opaque;
++    VFIOPCIDevice *vdev = q->vdev;
++
++    return vfio_region_read(&vdev->bars[q->bar].region,
++                            addr + q->bar_offset, size);
++}
++
++static void igd_dc_state_write(void *opaque, hwaddr addr,
++                               uint64_t data, unsigned size)
++{
++    IGDDcStateQuirk *q = opaque;
++    VFIOPCIDevice *vdev = q->vdev;
++    uint64_t clamped = data;
++
++    if (size == 4) {
++        clamped &= ~(uint64_t)IGD_DC_STATE_REQUEST_MASK;
++    }
++
++    if (clamped != data) {
++        error_report_once("IGD quirk: denying guest DC_STATE_EN request "
++                          "0x%" PRIx64 " (writing 0x%" PRIx64 "); display DC "
++                          "states stay disabled while the iGPU is assigned",
++                          data, clamped);
++    }
++
++    vfio_region_write(&vdev->bars[q->bar].region,
++                      addr + q->bar_offset, clamped, size);
++}
++
++static const MemoryRegionOps igd_dc_state_ops = {
++    .read = igd_dc_state_read,
++    .write = igd_dc_state_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++};
++
+ void vfio_probe_igd_bar0_quirk(VFIOPCIDevice *vdev, int nr)
+ {
+     IGDBdsmMirrorQuirk *mirror;
+@@ -602,6 +682,27 @@ void vfio_probe_igd_bar0_quirk(VFIOPCIDevice *vdev, int nr)
+             QLIST_INSERT_HEAD(&vdev->bars[nr].quirks, dquirk, next);
+         }
+     }
++
++    /*
++     * DC_STATE_EN clamp (gen9+, where DC states were introduced): refuse to
++     * let the guest power the display engine down into a DC state it cannot
++     * be brought back out of.  See igd_dc_state_write().
++     */
++    if (gen >= 9) {
++        VFIOQuirk *dcquirk = vfio_quirk_alloc(1);
++        IGDDcStateQuirk *dq = dcquirk->data = g_malloc0(sizeof(*dq));
++
++        dq->vdev = vdev;
++        dq->bar = nr;
++        dq->bar_offset = IGD_DC_STATE_EN;
++        memory_region_init_io(&dcquirk->mem[0], OBJECT(vdev),
++                              &igd_dc_state_ops, dq,
++                              "vfio-igd-dc-state-quirk", 4);
++        memory_region_add_subregion_overlap(vdev->bars[nr].region.mem,
++                                            IGD_DC_STATE_EN,
++                                            &dcquirk->mem[0], 1);
++        QLIST_INSERT_HEAD(&vdev->bars[nr].quirks, dcquirk, next);
++    }
+ }
+ 
+ void vfio_probe_igd_bar4_quirk(VFIOPCIDevice *vdev, int nr)
+--
+2.43.0
