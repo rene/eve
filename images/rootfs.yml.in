@@ -82,6 +82,14 @@ services:
     image: MEMORY_MONITOR_TAG
     cgroupsPath: /eve/services/memory-monitor
     oomScoreAdj: -1000
+  # The host Wayland compositor. The container is always present but the
+  # compositor process itself is started by pillar's displaymgr, and only
+  # when display.compositor.enabled is set — it must stay stopped on a
+  # device that assigns its GPU to a guest. See docs/DISPLAY.md.
+  - name: display
+    image: DISPLAY_TAG
+    cgroupsPath: /eve/services/display
+    oomScoreAdj: -999
   - name: vtpm
     image: VTPM_TAG
     cgroupsPath: /eve/services/vtpm

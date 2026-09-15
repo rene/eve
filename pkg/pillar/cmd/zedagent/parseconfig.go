@@ -1659,6 +1659,12 @@ func parseDeviceIoListConfig(getconfigCtx *getconfigContext,
 				port.Phyaddr.UsbAddr = value
 			case "usbproduct":
 				port.Phyaddr.UsbProduct = value
+			case "connector":
+				// A display connector as named in /sys/class/drm, e.g.
+				// "card0-HDMI-A-1". Several connectors share one card, so
+				// unlike pcilong this does not identify an assignable PCI
+				// device; it selects an output on the host compositor.
+				port.Phyaddr.DrmConnector = value
 			default:
 				port.Phyaddr.UnknownType = value
 				log.Warnf("Unrecognized Physical address Ignored: "+

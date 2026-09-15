@@ -348,6 +348,12 @@ type IoBundle struct {
 	Serial     string `json:",omitempty"` // E.g., "/dev/ttyS1"
 	UsbAddr    string `json:",omitempty"` // E.g., "1:2.3"
 	UsbProduct string `json:",omitempty"` // E.g., "0951:1666"
+	// DrmConnector names a physical display connector as it appears in
+	// /sys/class/drm, e.g. "card0-HDMI-A-1". Set on IoHDMI bundles that the
+	// device model routes through the host compositor rather than assigning
+	// the whole GPU to a guest; such a bundle has no PciLong of its own,
+	// since several connectors share one card.
+	DrmConnector string `json:",omitempty"`
 
 	// Attributes Derived and assigned locally ( not from controller)
 
@@ -449,6 +455,11 @@ func (ib IoBundle) HasAdapterChanged(log *base.LogObject, phyAdapter PhysicalIOA
 			ib.Ioports, phyAdapter.Phyaddr.Ioports)
 		return true
 	}
+	if phyAdapter.Phyaddr.DrmConnector != ib.DrmConnector {
+		log.Functionf("DrmConnector changed from %s to %s",
+			ib.DrmConnector, phyAdapter.Phyaddr.DrmConnector)
+		return true
+	}
 	if phyAdapter.Logicallabel != ib.Logicallabel {
 		log.Functionf("Logicallabel changed from %s to %s",
 			ib.Logicallabel, phyAdapter.Logicallabel)
@@ -486,6 +497,7 @@ func IoBundleFromPhyAdapter(log *base.LogObject, phyAdapter PhysicalIOAdapter) *
 	ib.Irq = phyAdapter.Phyaddr.Irq
 	ib.Ioports = phyAdapter.Phyaddr.Ioports
 	ib.Serial = phyAdapter.Phyaddr.Serial
+	ib.DrmConnector = phyAdapter.Phyaddr.DrmConnector
 	ib.Usage = phyAdapter.Usage
 	ib.Cbattr = phyAdapter.Cbattr
 	// We're making deep copy

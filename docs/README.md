@@ -333,6 +333,7 @@ For some of the details on EVE internals you may want to check out:
 * [Microservice Classification](MICROSERVICE-CLASSIFICATION.md) — device management vs. workload management microservices, and why the distinction matters for remote manageability
 * [Domain Manager](../pkg/pillar/docs/domainmgr.md)
 * [TPM Manager](../pkg/pillar/docs/tpmmgr.md)
+* [Local display output](DISPLAY.md) — driving real monitors from applications through a virtio-gpu and a host compositor, as an alternative to GPU passthrough
 
 ## EVE CGroups
 
@@ -352,6 +353,7 @@ Parent cgroup (/sys/fs/cgroup/<subsystems>/)
 │   │   └── vtpm
 │   │   └── watchdog
 │   │   └── xen-tools
+│   │   └── display
 │   │
 │   └── containerd
 │   └── memlogd

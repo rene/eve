@@ -66,6 +66,24 @@ func (usbCtx *usbmanagerContext) subscribe(ps *pubsub.PubSub) {
 	}
 	usbCtx.subscriptions = append(usbCtx.subscriptions, subDomainStatus)
 
+	// The host compositor's keyboard and mouse must not also be passed
+	// through to an application.
+	subDisplayStatus, err := ps.NewSubscription(pubsub.SubscriptionOptions{
+		AgentName:     "displaymgr",
+		MyAgentName:   agentName,
+		TopicImpl:     types.DisplayStatus{},
+		Activate:      false,
+		CreateHandler: usbCtx.handleDisplayStatusCreate,
+		ModifyHandler: usbCtx.handleDisplayStatusModify,
+		DeleteHandler: usbCtx.handleDisplayStatusDelete,
+		WarningTime:   warningTime,
+		ErrorTime:     errorTime,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	usbCtx.subscriptions = append(usbCtx.subscriptions, subDisplayStatus)
+
 	for _, sub := range usbCtx.subscriptions {
 		err := sub.Activate()
 		if err != nil {
@@ -240,4 +258,37 @@ func (usbCtx *usbmanagerContext) handleAssignableAdaptersDelete(_ interface{}, _
 		log.Noticef("AA delete, remove %s", ioBundleLogString(adapter))
 		usbCtx.controller.removeIOBundle(adapter)
 	}
+}
+
+func (usbCtx *usbmanagerContext) handleDisplayStatusCreate(_ interface{}, _ string,
+	statusArg interface{}) {
+	usbCtx.handleDisplayStatusImpl(statusArg)
+}
+
+func (usbCtx *usbmanagerContext) handleDisplayStatusModify(_ interface{}, _ string,
+	statusArg interface{}, _ interface{}) {
+	usbCtx.handleDisplayStatusImpl(statusArg)
+}
+
+func (usbCtx *usbmanagerContext) handleDisplayStatusImpl(statusArg interface{}) {
+	status, ok := statusArg.(types.DisplayStatus)
+	if !ok {
+		log.Warnf("display status not OK, got %+v type %T", statusArg, statusArg)
+		return
+	}
+	// Only claim the devices while the compositor is actually up; an empty
+	// set lets the rule lapse so a device that used to be the console
+	// keyboard becomes passthrough-eligible again.
+	devices := status.InputDevices
+	if !status.CompositorRunning {
+		devices = nil
+	}
+	log.Noticef("host compositor holds %d input device(s)", len(devices))
+	usbCtx.controller.setCompositorInputDevices(devices)
+}
+
+func (usbCtx *usbmanagerContext) handleDisplayStatusDelete(_ interface{}, _ string,
+	_ interface{}) {
+	log.Noticef("display status gone; host compositor holds no input devices")
+	usbCtx.controller.setCompositorInputDevices(nil)
 }

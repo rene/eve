@@ -21,6 +21,7 @@ import (
 	"github.com/lf-edge/eve/pkg/pillar/cmd/collectinfo"
 	"github.com/lf-edge/eve/pkg/pillar/cmd/conntrack"
 	"github.com/lf-edge/eve/pkg/pillar/cmd/diag"
+	"github.com/lf-edge/eve/pkg/pillar/cmd/displaymgr"
 	"github.com/lf-edge/eve/pkg/pillar/cmd/domainmgr"
 	"github.com/lf-edge/eve/pkg/pillar/cmd/downloader"
 	"github.com/lf-edge/eve/pkg/pillar/cmd/faultinjection"
@@ -82,6 +83,7 @@ var (
 	entrypoints = map[string]entrypoint{
 		"client":           {f: client.Run, inline: inlineAlways},
 		"diag":             {f: diag.Run},
+		"displaymgr":       {f: displaymgr.Run},
 		"domainmgr":        {f: domainmgr.Run},
 		"downloader":       {f: downloader.Run},
 		"faultinjection":   {f: faultinjection.Run},

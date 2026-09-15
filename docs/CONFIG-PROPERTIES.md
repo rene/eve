@@ -41,10 +41,12 @@ This document mirrors the key names, types, defaults, and ranges defined there.
 | volumemgr.worker.pool.size | integer | 20 | 1 | 200 | max number of concurrent volumemgr background jobs (loading images into the CAS, preparing/creating/destroying volumes). Work exceeding the limit is deferred and retried, so this bounds throughput; raise it on nodes deploying many app instances at once (doesn't need a reboot to take effect) |
 | debug.disable.dhcp.all-ones.netmask | boolean | false | - | - | deprecated; retained only to avoid reporting errors for older deployments where this option is still configured |
 | debug.enable.usb | boolean | true | - | - | allow USB e.g. keyboards on device (controller by default overrides to false) |
-| debug.enable.vga | boolean | true | - | - | allow VGA console on device (controller by default overrides to false) |
+| debug.enable.vga | boolean | true | - | - | allow VGA console on device (controller by default overrides to false); has no effect while the host compositor or a GPU passthrough holds the card, see docs/DISPLAY.md |
 | debug.enable.ssh | authorized ssh key | "" | - | - | allow ssh to EVE; empty string disables SSH |
 | debug.enable.console | boolean | true | - | - | allow console access to EVE, reboot required to disable (controller by default overrides to false) |
 | debug.enable.vnc.shim.vm | boolean | false | - | - | allow VNC access to the container application shim VM (reboot required to disable) |
+| display.compositor.enabled | boolean | false | - | - | run the host Wayland compositor so applications with an assigned display connector can drive a real monitor through a virtio-gpu; mutually exclusive with assigning the same GPU to a guest, see docs/DISPLAY.md |
+| display.blob.scanout | boolean | false | - | - | back guest RAM with a shareable memfd so the host imports virtio-gpu scanout pages as dma-bufs instead of copying each damaged rectangle; requires CONFIG_UDMABUF in the host kernel |
 | datastore.http.security.allowinsecureauth | boolean | false | - | - | allow sending authorization header over unencrypted http connection |
 | storage.dom0.disk.minusage.percent | integer percent | 20 | 20 | 80 | min. percent of persist partition reserved for dom0 |
 | storage.dom0.disk.maxusagebytes | integer bytes | 2147483648 | 104857600 | 4294967295 (max uint32) | max bytes of persist partition that can be used by dom0 |

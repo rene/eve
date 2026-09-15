@@ -27,11 +27,17 @@ ENV BUILD_PKGS="\
     pixman-dev libaio-dev yajl-dev argp-standalone \
     linux-headers git patch texinfo tar libcap-ng-dev \
     attr-dev flex bison cmake libusb-dev zstd-dev \
-    python3 build-base ninja gnutls-dev agetty py3-setuptools"
+    python3 build-base ninja gnutls-dev agetty py3-setuptools \
+    sdl2-dev mesa-dev libdrm-dev libepoxy-dev wayland-dev wayland-protocols"
 
 ENV BUILD_PKGS_arm64=dtc-dev
 
-ENV PKGS="alpine-baselayout libgcc bash musl-utils libaio libbz2 glib pixman yajl keyutils libusb xz-libs libuuid zstd-libs util-linux-misc gnutls"
+# sdl2 / mesa-egl / mesa-gbm / wayland-libs-* are the runtime side of
+# --enable-sdl --enable-opengl: they let qemu hand its virtio-gpu scanouts
+# to the host compositor instead of running headless. See docs/DISPLAY.md.
+ENV PKGS="alpine-baselayout libgcc bash musl-utils libaio libbz2 glib pixman yajl keyutils libusb xz-libs libuuid zstd-libs util-linux-misc gnutls \
+    sdl2 libdrm libepoxy mesa mesa-egl mesa-gbm mesa-gles \
+    wayland-libs-client wayland-libs-egl wayland-libs-cursor libxkbcommon"
 ENV PKGS_arm64=libfdt
 
 RUN eve-alpine-deploy.sh
@@ -169,9 +175,20 @@ WORKDIR /xen
 # ENV EXTRA_QEMUU_CONFIGURE_ARGS="${EXTRA_QEMUU_CONFIGURE_ARGS} --extra-cflags=-DCONFIG_EVE_CRASH_INJECTOR"
 
 # disable golang as it does not play well together with musl (stderr is defined as FILE* const and fails to compile)
+#
+# --enable-sdl --enable-opengl give qemu a UI backend that can hand its
+# virtio-gpu scanouts to the host Wayland compositor (see docs/DISPLAY.md).
+# --enable-opengl is not optional-if-missing: qemu's meson.build errors out
+# with "epoxy/egl.h not found" unless libepoxy-dev is installed, so the two
+# have to move together.
+# Without them qemu has no display backend at all and can only run headless
+# or over VNC. SDL is used rather than GTK because SDL opens one toplevel
+# window per scanout, which is what a multi-monitor domain needs, and
+# because it pulls in far less than the GTK stack.
 RUN ./configure --prefix=/usr --disable-xen --disable-golang --disable-qemu-traditional --disable-docs --enable-9pfs \
     --with-system-ovmf=/usr/lib/xen/boot/ovmf.bin --disable-stubdom --disable-openbios \
     --enable-vhost-vsock --enable-vhost-scsi \
+    --enable-sdl --enable-opengl \
     --disable-microblaze --disable-mips --disable-ppc \
     --disable-sparc --disable-tricore --disable-alpha --disable-hppa \
     --disable-storage-daemon

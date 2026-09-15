@@ -14,6 +14,10 @@ const sysFSPath = "/sys"
 type usbmanagerController struct {
 	ruleEngine *ruleEngine
 
+	// compositorInputRule keeps the host compositor's keyboard and mouse
+	// out of every guest; displaymgr tells it which nodes those are.
+	compositorInputRule *compositorInputForbidPassthroughRule
+
 	usbpassthroughs usbpassthroughs
 
 	connectUSBDeviceToQemu      func(up usbpassthrough)
@@ -33,6 +37,9 @@ func (uc *usbmanagerController) init() {
 	usbNetworkAdapterForbidPassthroughRule := newUsbNetworkAdapterForbidPassthroughRule()
 	uc.ruleEngine.addRule(&usbNetworkAdapterForbidPassthroughRule)
 	uc.ruleEngine.addRule(&usbHubForbidPassthroughRule{})
+
+	uc.compositorInputRule = newCompositorInputForbidPassthroughRule()
+	uc.ruleEngine.addRule(uc.compositorInputRule)
 
 	uc.usbpassthroughs = newUsbpassthroughs()
 
@@ -397,4 +404,17 @@ func (uc *usbmanagerController) updateUSBDevicePassthroughs(usbpassthroughsAndUs
 
 func (uc *usbmanagerController) cancel() {
 	uc.listenUSBStopChan <- struct{}{}
+}
+
+// setCompositorInputDevices updates the set of input devices the host
+// compositor holds, and re-evaluates passthrough so a device that has just
+// been claimed is withdrawn from a guest — and one that has just been
+// released becomes eligible again — without waiting for a USB event.
+func (uc *usbmanagerController) setCompositorInputDevices(devices []string) {
+	uc.Lock()
+	defer uc.Unlock()
+
+	uc.compositorInputRule.setClaimedInputDevices(devices)
+
+	uc.updateAllUSBDevicePassthroughs()
 }

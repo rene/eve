@@ -460,11 +460,21 @@ ifeq ($(LINUXKIT_PKG_TARGET),push)
 endif
 
 # The rootfs partition size is set to 512MB after 10.2.0 release (see commit 719b4d516)
-# Before 10.2.0 it was 300MB. We must maintain compatibility with older versions so rootfs size cannot exceed 300MB.
+# Before 10.2.0 it was 300MB.
 # 'k' and nvidia are not affected by this limitation because there no installation of kubevirt/k3s prior to 10.2.0
 # Even though the partition layout is now unified, let's still check for ROOTFS_MAXSIZE_MB not exceeding 10GB for 'k'
-# and NVIDIA based platforms, and 290MB for x86_64 and other arm64 platforms. That helps in catching image size
-# increases earlier than at later stage.
+# and NVIDIA based platforms, and a fixed budget for x86_64 and other arm64 platforms. That helps in catching image
+# size increases earlier than at later stage.
+#
+# The generic budget was raised from 290MB to 480MB to make room for the host
+# graphics stack (Mesa, weston, the qemu SDL/OpenGL UI backend) that the
+# virtio-gpu display path needs — see docs/DISPLAY.md.
+#
+# CONSEQUENCE: a rootfs larger than 300MB no longer fits the pre-10.2.0
+# partition layout, so such an image cannot be pushed as an upgrade to a
+# device that was installed before 10.2.0. Those devices have to be
+# reinstalled. 480MB stays under the 512MB partition with headroom for the
+# grub/EFI overhead.
 # We are currently filtering out a few packages from bulk builds since they are not getting published in Docker HUB
 ifeq ($(HV),k)
         PKGS_$(ZARCH)=$(shell find pkg -maxdepth 1 -type d | grep -Ev "eve|alpine|sources$$")
@@ -474,7 +484,7 @@ else
         PKGS_$(ZARCH)=$(shell find pkg -maxdepth 1 -type d | grep -Ev "eve|alpine|sources|kube|external-boot-image$$")
         # nvidia platform requires more space
         ifeq (, $(findstring nvidia,$(PLATFORM)))
-            ROOTFS_MAXSIZE_MB=290
+            ROOTFS_MAXSIZE_MB=480
         else
             ROOTFS_MAXSIZE_MB=10240
         endif

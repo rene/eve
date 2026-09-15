@@ -23,6 +23,10 @@ type PhysicalAddress struct {
 	Ioports    string
 	UsbAddr    string
 	UsbProduct string
+	// DrmConnector - sysfs name of a display connector, e.g.
+	// "card0-HDMI-A-1". Used by IoHDMI adapters driven through the host
+	// compositor instead of being assigned to a guest over VFIO.
+	DrmConnector string
 	// unknownType - If a type in config is unknown, store it here.
 	UnknownType string
 }

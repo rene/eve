@@ -1,0 +1,17 @@
+---
+image: eve-display
+org: lfedge
+config:
+  binds:
+    # the compositor socket and displaymgr's placement file live under /run,
+    # which is shared with pillar and with the xen-tools container that runs
+    # qemu
+    - /run:/run
+    - /dev:/dev
+    - /sys:/sys
+  capabilities:
+    - all
+  # DRM master and the input devices need the real device nodes
+  devices:
+    - path: all
+      type: a

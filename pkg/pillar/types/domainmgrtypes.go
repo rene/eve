@@ -464,6 +464,29 @@ type DomainStatus struct {
 	HoldUntil time.Time
 	// GdbSocket is the gdbstub UNIX socket exposed for a held domain, if any.
 	GdbSocket string
+
+	// VirtualDisplays are the physical connectors this domain reaches through
+	// the host compositor, resolved by domainmgr from the app's IoHDMI
+	// adapters and the current DisplayStatus. Non-empty means the hypervisor
+	// must give the domain a virtio-gpu with one scanout per entry, and point
+	// qemu's UI backend at the compositor. Empty means no local display,
+	// which is also what a GPU passed through over VFIO looks like here.
+	VirtualDisplays []VirtualDisplay
+}
+
+// VirtualDisplay binds one virtio-gpu scanout to one physical connector.
+// Scanout order is the slice order.
+type VirtualDisplay struct {
+	// Connector is the sysfs name, e.g. "card0-HDMI-A-1".
+	Connector string
+	// Logicallabel of the IoBundle that modeled this connector.
+	Logicallabel string
+	// Width and Height seed the virtio-gpu's initial mode and synthesized
+	// EDID. They are only a starting point: once the compositor fullscreens
+	// the surface, qemu pushes the real output size down and the guest
+	// re-reads its EDID, so a stale value here self-corrects.
+	Width  uint32
+	Height uint32
 }
 
 func (status DomainStatus) Key() string {

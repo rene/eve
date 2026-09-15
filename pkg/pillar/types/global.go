@@ -522,6 +522,20 @@ const (
 	// Only affects the iGPU device.
 	QemuIgpuNoMmap GlobalSettingKey = "debug.qemu.igpu.no.mmap"
 
+	// DisplayCompositor: when true, displaymgr starts the host Wayland
+	// compositor so applications with an assigned display connector can
+	// scan out to a real monitor through a virtio-gpu. Mutually exclusive
+	// with assigning the same GPU to a guest over VFIO. Off by default:
+	// on a device with no compositor in the rootfs it must stay off.
+	DisplayCompositor GlobalSettingKey = "display.compositor.enabled"
+
+	// DisplayBlobScanout: when true, guest scanout pages are backed by a
+	// shareable memfd and imported by the host as dma-bufs (virtio-gpu
+	// blob resources) instead of being copied out of guest RAM on every
+	// damaged rectangle. Needs CONFIG_UDMABUF in the host kernel. Off by
+	// default since it changes the domain's memory backend.
+	DisplayBlobScanout GlobalSettingKey = "display.blob.scanout"
+
 	// MsrvPrometheusMetricsRequestPerSecond: limit the number of requests per second
 	MsrvPrometheusMetricsRequestPerSecond GlobalSettingKey = "msrv.prometheus.metrics.rps"
 	// MsrvPrometheusMetricsBurst: limit the burst of requests
@@ -1287,6 +1301,8 @@ func NewConfigItemSpecMap() ConfigItemSpecMap {
 	configItemSpecMap.AddStringItem(QemuTraceEvents, "", blankValidator)
 	configItemSpecMap.AddBoolItem(QemuGdb, false)
 	configItemSpecMap.AddBoolItem(QemuIgpuNoMmap, false)
+	configItemSpecMap.AddBoolItem(DisplayCompositor, false)
+	configItemSpecMap.AddBoolItem(DisplayBlobScanout, false)
 	configItemSpecMap.AddBoolItem(DataStoreAllowInsecureAuth, false)
 
 	// Add TriState Items

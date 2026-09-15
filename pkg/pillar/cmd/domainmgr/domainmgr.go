@@ -130,9 +130,14 @@ type domainContext struct {
 	pubCipherBlockStatus   pubsub.Publication
 	pubCapabilities        pubsub.Publication
 	subNodeAgentStatus     pubsub.Subscription
-	cipherMetrics          *cipher.AgentMetrics
-	createSema             *sema.Semaphore
-	GCComplete             bool
+	// Display output: displaymgr owns the compositor and the connector
+	// inventory; domainmgr asks it to place each domain's scanouts.
+	subDisplayStatus        pubsub.Subscription
+	pubDisplaySurfaceConfig pubsub.Publication
+	displayStatus           types.DisplayStatus
+	cipherMetrics           *cipher.AgentMetrics
+	createSema              *sema.Semaphore
+	GCComplete              bool
 
 	usbAccess               bool
 	setInitialUsbAccess     bool
@@ -344,6 +349,37 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 		log.Fatal(err)
 	}
 	domainCtx.pubCapabilities = capabilitiesInfoPub
+
+	pubDisplaySurfaceConfig, err := ps.NewPublication(pubsub.PublicationOptions{
+		AgentName: agentName,
+		TopicType: types.DisplaySurfaceConfig{},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	domainCtx.pubDisplaySurfaceConfig = pubDisplaySurfaceConfig
+	pubDisplaySurfaceConfig.ClearRestarted()
+
+	// Look for the host display inventory and compositor state.
+	subDisplayStatus, err := ps.NewSubscription(pubsub.SubscriptionOptions{
+		AgentName:     "displaymgr",
+		MyAgentName:   agentName,
+		TopicImpl:     types.DisplayStatus{},
+		Activate:      false,
+		Ctx:           &domainCtx,
+		CreateHandler: handleDisplayStatusCreate,
+		ModifyHandler: handleDisplayStatusModify,
+		DeleteHandler: handleDisplayStatusDelete,
+		WarningTime:   warningTime,
+		ErrorTime:     errorTime,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	domainCtx.subDisplayStatus = subDisplayStatus
+	if err := subDisplayStatus.Activate(); err != nil {
+		log.Fatal(err)
+	}
 
 	// Look for nodeagent status
 	subNodeAgentStatus, err := ps.NewSubscription(pubsub.SubscriptionOptions{
@@ -584,6 +620,9 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 		case change := <-subZFSPoolStatus.MsgChan():
 			subZFSPoolStatus.ProcessChange(change)
 
+		case change := <-subDisplayStatus.MsgChan():
+			subDisplayStatus.ProcessChange(change)
+
 		case <-domainCtx.publishTicker.C:
 			publishProcessesHandler(&domainCtx)
 
@@ -806,6 +845,9 @@ func Run(ps *pubsub.PubSub, loggerArg *logrus.Logger, logArg *base.LogObject, ar
 
 		case change := <-subZFSPoolStatus.MsgChan():
 			subZFSPoolStatus.ProcessChange(change)
+
+		case change := <-subDisplayStatus.MsgChan():
+			subDisplayStatus.ProcessChange(change)
 
 		case change := <-subPhysicalIOAdapter.MsgChan():
 			subPhysicalIOAdapter.ProcessChange(change)
@@ -1879,6 +1921,25 @@ func doActivate(ctx *domainContext, config types.DomainConfig,
 	// We now have reserved all of the IoAdapters
 	status.IoAdapterList = config.IoAdapterList
 
+	// Work out which physical connectors this domain scans out to, and ask
+	// displaymgr to hold them, before anything is handed to the hypervisor:
+	// qemu binds its scanouts at create time, so a placement that arrives
+	// later would leave the surface on the wrong monitor.
+	if err := resolveVirtualDisplays(ctx, config, status); err != nil {
+		log.Errorf("Failed to resolve display outputs for %s: %s",
+			config.Key(), err)
+		status.PendingAdd = false
+		status.SetErrorNow(err.Error())
+		status.AdaptersFailed = true
+		releaseCPUs(ctx, &config, status)
+		publishDomainStatus(ctx, status)
+		releaseAdapters(ctx, config.IoAdapterList, config.UUIDandVersion.UUID,
+			nil)
+		status.IoAdapterList = nil
+		return
+	}
+	publishDisplaySurfaceConfig(ctx, config, status)
+
 	// Assign any I/O devices
 	if err := doAssignIoAdaptersToDomain(ctx, config, status); err != nil {
 		log.Errorf("Failed to assign adapters for %s: %s",
@@ -1887,6 +1948,8 @@ func doActivate(ctx *domainContext, config types.DomainConfig,
 		status.SetErrorNow(err.Error())
 		status.AdaptersFailed = true
 		releaseCPUs(ctx, &config, status)
+		unpublishDisplaySurfaceConfig(ctx, status.Key())
+		status.VirtualDisplays = nil
 		publishDomainStatus(ctx, status)
 		releaseAdapters(ctx, config.IoAdapterList, config.UUIDandVersion.UUID,
 			nil)
@@ -2371,6 +2434,10 @@ func doCleanup(ctx *domainContext, status *types.DomainStatus) {
 	releaseAdapters(ctx, status.IoAdapterList, status.UUIDandVersion.UUID,
 		status)
 	status.IoAdapterList = nil
+	// Hand the connectors back so another app — or the host console — can
+	// take them.
+	unpublishDisplaySurfaceConfig(ctx, status.Key())
+	status.VirtualDisplays = nil
 	publishDomainStatus(ctx, status)
 
 	// Remove the boot file for the app instance unless the device is currently rebooting/shutting down.
@@ -3013,6 +3080,9 @@ func handleDelete(ctx *domainContext, key string, status *types.DomainStatus) {
 	// Check if the USB controller became available for dom0
 	updateUsbAccess(ctx)
 	updateVgaAccess(ctx)
+	// doCleanup already does this for an activated domain; repeat it here
+	// so a domain deleted before it ever ran does not leak its connectors.
+	unpublishDisplaySurfaceConfig(ctx, status.Key())
 
 	// Delete xen cfg file for good measure
 	filename := xenCfgFilename(status.AppNum)
@@ -3957,7 +4027,13 @@ func updatePortAndPciBackIoBundle(ctx *domainContext, ib *types.IoBundle) (chang
 		if ctx.usbAccess && (ib.Type == types.IoUSB || ib.Type == types.IoUSBController) {
 			keepInHost = true
 		}
-		if ctx.vgaAccess && ib.Type == types.IoHDMI {
+		if isCompositedDisplay(ib) {
+			// A connector is an output of a GPU that stays with the host:
+			// the compositor scans out to it. There is nothing to bind to
+			// pciback — several connectors share one card — and doing so
+			// would take the card away from the compositor.
+			keepInHost = true
+		} else if ctx.vgaAccess && ib.Type == types.IoHDMI {
 			// only return VGA devices that were marked as boot devices.
 			// console output won't be visible on others anyway
 			// it allows us to debug issues with GPUs assigned to applications
@@ -4276,11 +4352,23 @@ func updateUsbAccess(ctx *domainContext) {
 	checkIoBundleAll(ctx)
 }
 
+// updateVgaAccess arbitrates the console framebuffer against whoever else
+// wants the GPU. There are three states, not two:
+//
+//	console      - fbcon and the VTs are bound; the monitor TUI is visible.
+//	compositor   - displaymgr's compositor is DRM master; fbcon must be
+//	               unbound or it fights the compositor for the same CRTCs.
+//	passthrough  - a GPU is assigned to a guest over VFIO; fbcon unbound.
+//
+// The compositor case looks like the passthrough case from fbcon's point of
+// view, which is why it reuses the same unbind path rather than adding a
+// second mechanism.
 func updateVgaAccess(ctx *domainContext) {
 
-	log.Functionf("updateVgaAccess(%t)", ctx.vgaAccess)
+	log.Functionf("updateVgaAccess(%t) compositor %t",
+		ctx.vgaAccess, compositorOwnsGPU(ctx))
 
-	if ctx.vgaAccess {
+	if ctx.vgaAccess && !compositorOwnsGPU(ctx) {
 		// If VGA is disabled, we need to first bring any VGA PCIe adapter back
 		updatePortAndPciBackIoBundleAll(ctx)
 		checkIoBundleAll(ctx)

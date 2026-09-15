@@ -109,6 +109,10 @@ const (
 	AssignableAdaptersLogType LogObjectType = "assignable_adapters"
 	// PhysicalIOAdapterListLogType:
 	PhysicalIOAdapterListLogType LogObjectType = "physical_io_adapter_list"
+	// DisplayStatusLogType:
+	DisplayStatusLogType LogObjectType = "display_status"
+	// DisplaySurfaceConfigLogType:
+	DisplaySurfaceConfigLogType LogObjectType = "display_surface_config"
 	// AttestNonceLogType:
 	AttestNonceLogType LogObjectType = "attest_nonce"
 	// AttestQuoteLogType:
