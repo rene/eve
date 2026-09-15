@@ -3,7 +3,7 @@
 # Copyright (c) 2025 Zededa, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-FROM lfedge/eve-alpine:d075dd224fa7a7540817d224cc28d3cd998ad04c AS zfs
+FROM lfedge/eve-alpine:62b7d353698f50127c732ba2ee09b755ac6215ed AS zfs
 ENV BUILD_PKGS="git patch ca-certificates util-linux build-base gettext-dev libtirpc-dev automake autoconf \
     libtool linux-headers attr-dev e2fsprogs-dev glib-dev openssl-dev util-linux-dev coreutils"
 ENV PKGS="ca-certificates util-linux libintl libuuid libtirpc libblkid libcrypto3 zlib"

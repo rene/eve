@@ -10,7 +10,7 @@
 # into the package: see abuild/etc/abuild.conf.
 FROM lfedge/eve-recovertpm:9de8266c313f786c13ef69c60fb5669263f75638 AS recovertpm
 FROM lfedge/eve-bpftrace:d411336b71859e7f6a21eb2c84c32c5d921e1394 AS bpftrace
-FROM lfedge/eve-alpine:d075dd224fa7a7540817d224cc28d3cd998ad04c AS build
+FROM lfedge/eve-alpine:62b7d353698f50127c732ba2ee09b755ac6215ed AS build
 ENV BUILD_PKGS="abuild curl tar make linux-headers patch g++ git gcc gpg gettext gettext-static ncurses-dev jq autoconf openssl-dev zlib-dev zlib-static gpg-agent"
 # Feel free to add additional packages here, but be aware that
 # EVE's rootfs image can be no larger than 300Mb (and don't

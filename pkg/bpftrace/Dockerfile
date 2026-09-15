@@ -2,7 +2,7 @@
 
 # Copyright (c) 2024 Zededa, Inc.
 # SPDX-License-Identifier: Apache-2.0
-FROM lfedge/eve-alpine:d075dd224fa7a7540817d224cc28d3cd998ad04c AS build
+FROM lfedge/eve-alpine:62b7d353698f50127c732ba2ee09b755ac6215ed AS build
 
 ENV BUILD_PKGS libbpf-dev make gcc g++ git perl linux-headers musl-dev cmake elfutils-dev llvm17-libs llvm17-dev llvm17-gtest llvm17-static cereal flex bison clang17-extra-tools clang17-dev clang17-static pahole gtest-dev bash py3-setuptools zip zlib-dev
 
