@@ -1,0 +1,154 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Renê de Souza Pinto <rene@renesp.com.br>
+Date: Wed, 24 Sep 2026 12:00:00 +0000
+Subject: [PATCH] vfio/igd: hold display power wells on for an assigned iGPU
+
+Companion to the DC-state clamp (patch 18).  With DC5/DC6/DC9 denied the
+display engine still froze the host after some time under a guest input
+workload (typing / mouse on the login screen), which points at the other
+display power-down path the DC clamp does not cover: the power wells.
+
+PWR_WELL_CTL_DRIVER (BAR0 0x45404) gates blocks of the display engine.
+Each well has a REQUEST bit (odd, writable) the driver sets to ask the well
+on or off, and a STATE bit (even, read-only) the hardware reports back.  On
+an assigned iGPU the guest drives these directly.  When it powers a well
+down and an asynchronous display access lands while that well is off or
+mid-transition - a vblank/interrupt handler reading a register in the well,
+or a hardware-cursor update driven by user input - the access never
+completes and the host stops dead, with no MCE, no panic, no watchdog and
+nothing in any log.  This is the same silent-hang signature as the DC-state
+path; the hangs in the qemu traces died reading GEN8_MASTER_IRQ inside an
+ordinary 60 Hz vblank handler, and input is simply the most efficient
+trigger because every keystroke and mouse move forces a wake-then-access.
+
+Clamp the power-DOWN.  On each 32-bit write, OR in the wells that are
+currently requested, so any REQUEST bit that is already set stays set while
+the guest can still turn additional wells on.  Wells therefore only ever
+accumulate on and never drop, so there is no powered-down window for an
+async access to race.  Reads pass through untouched.
+
+Like the DC-state clamp this trades display idle power for the hang.  Unlike
+DC states, power wells are functional state the driver expects to toggle, so
+a driver may observe STATE not matching the off it requested; drivers
+tolerate this (i915 warns and continues).  If a modeset misbehaves, narrow
+IGD_PWR_WELL_REQ_MASK to the specific wells that race - the qemu trace's
+last write to 0x45404 before a hang names them - rather than all of them,
+and/or extend the same quirk to PWR_WELL_CTL_DDI (0x45454) / _AUX (0x45444)
+if the racing access is in one of those.
+
+0x45404 shares the BAR0 page (0x45000) that the DBUF_CTL sanitize quirk and
+the DC-state clamp already trap, so this adds no new vmexits.
+
+Signed-off-by: Renê de Souza Pinto <rene@renesp.com.br>
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+---
+ hw/vfio/igd.c | 87 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 87 insertions(+)
+
+diff --git a/tools/qemu-xen/hw/vfio/igd.c b/tools/qemu-xen/hw/vfio/igd.c
+index b1d40e3f27..c2e5107a44 100644
+--- a/tools/qemu-xen/hw/vfio/igd.c
++++ b/tools/qemu-xen/hw/vfio/igd.c
+@@ -6,6 +6,71 @@
+     .endianness = DEVICE_LITTLE_ENDIAN,
+ };
+ 
++/*
++ * IGD BAR0 PWR_WELL_CTL clamp quirk.
++ *
++ * The display power wells gate blocks of the display engine.  Each well has a
++ * REQUEST bit (odd, writable) the driver sets to ask the well on/off and a
++ * STATE bit (even, read-only) the hardware reports.  On an assigned iGPU the
++ * guest powers wells down itself; if an asynchronous display access - a
++ * vblank/IRQ handler, or an input-driven cursor update - lands while a well is
++ * off or mid-transition, that access never completes and the host dies
++ * silently, the same way a DC-state entry does.
++ *
++ * Hold the wells on: OR the currently-requested wells back into every guest
++ * write, so a REQUEST bit once set never clears while the guest can still turn
++ * more wells on.  Wells only accumulate on, so there is no powered-down window
++ * to race.  Reads pass through.  Cost is display idle power, not function.
++ */
++#define IGD_PWR_WELL_CTL_DRIVER   0x45404
++#define IGD_PWR_WELL_REQ_MASK     0xAAAAAAAAu   /* odd bits: per-well REQUEST */
++
++typedef struct IGDPwrWellQuirk {
++    VFIOPCIDevice *vdev;
++    uint32_t bar_offset;
++    uint8_t bar;
++} IGDPwrWellQuirk;
++
++static uint64_t igd_pwr_well_read(void *opaque, hwaddr addr, unsigned size)
++{
++    IGDPwrWellQuirk *q = opaque;
++    VFIOPCIDevice *vdev = q->vdev;
++
++    return vfio_region_read(&vdev->bars[q->bar].region,
++                            addr + q->bar_offset, size);
++}
++
++static void igd_pwr_well_write(void *opaque, hwaddr addr,
++                               uint64_t data, unsigned size)
++{
++    IGDPwrWellQuirk *q = opaque;
++    VFIOPCIDevice *vdev = q->vdev;
++    uint64_t clamped = data;
++
++    if (size == 4) {
++        uint32_t cur = vfio_region_read(&vdev->bars[q->bar].region,
++                                        addr + q->bar_offset, 4);
++
++        clamped = data | (cur & IGD_PWR_WELL_REQ_MASK);
++        if (clamped != data) {
++            error_report_once("IGD quirk: holding display power wells on "
++                              "(guest wrote 0x%" PRIx64 ", forcing 0x%" PRIx64
++                              "); wells stay powered while the iGPU is assigned",
++                              data, clamped);
++        }
++    }
++
++    vfio_region_write(&vdev->bars[q->bar].region,
++                      addr + q->bar_offset, clamped, size);
++}
++
++static const MemoryRegionOps igd_pwr_well_ops = {
++    .read = igd_pwr_well_read,
++    .write = igd_pwr_well_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++};
++
++
+ void vfio_probe_igd_bar0_quirk(VFIOPCIDevice *vdev, int nr)
+ {
+     int gen = igd_gen(vdev);
+@@ -25,6 +90,28 @@
+                                             &dcquirk->mem[0], 1);
+         QLIST_INSERT_HEAD(&vdev->bars[nr].quirks, dcquirk, next);
+     }
++
++    /*
++     * PWR_WELL_CTL clamp (gen9+): keep the guest from powering the display
++     * power wells down, closing the window where an async display access races
++     * a well that is off or mid-transition and wedges the host.  See
++     * igd_pwr_well_write().
++     */
++    if (gen >= 9) {
++        VFIOQuirk *pwquirk = vfio_quirk_alloc(1);
++        IGDPwrWellQuirk *pq = pwquirk->data = g_malloc0(sizeof(*pq));
++
++        pq->vdev = vdev;
++        pq->bar = nr;
++        pq->bar_offset = IGD_PWR_WELL_CTL_DRIVER;
++        memory_region_init_io(&pwquirk->mem[0], OBJECT(vdev),
++                              &igd_pwr_well_ops, pq,
++                              "vfio-igd-pwr-well-quirk", 4);
++        memory_region_add_subregion_overlap(vdev->bars[nr].region.mem,
++                                            IGD_PWR_WELL_CTL_DRIVER,
++                                            &pwquirk->mem[0], 1);
++        QLIST_INSERT_HEAD(&vdev->bars[nr].quirks, pwquirk, next);
++    }
+ }
+ 
+ void vfio_probe_igd_bar4_quirk(VFIOPCIDevice *vdev, int nr)
+-- 
+2.43.0
