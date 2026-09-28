@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Renê de Souza Pinto <rene@renesp.com.br>
+Date: Mon, 28 Sep 2026 12:00:00 +0000
+Subject: [PATCH] vfio/igd: hold the AUX and DDI display power wells on too
+
+Extends the power-well clamp (patch 19) from the main PWR_WELL_CTL_DRIVER
+register to the AUX (0x45444) and DDI (0x45454) DRIVER-copy registers, which
+gate the AUX-channel and DDI/PHY blocks of the display engine.
+
+Patch 19 stopped the input-driven runtime freeze (main wells PW1-PWD). A
+separate freeze appears on Windows VM reboot/power-off: the guest unloads its
+display driver and tears the whole display down, which powers down the AUX and
+DDI wells as well - wells patch 19 does not hold. An asynchronous access to a
+register behind one of those while it is off or mid-transition wedges the host
+the same way.
+
+Same request/state bit layout and the same BAR0 page (0x45000) as the main
+register, so this reuses igd_pwr_well_ops and adds no new vmexits: on each
+guest write, currently-requested wells are OR'd back in so a well never drops.
+
+CAVEAT: unlike the main and AUX wells (holding them on only costs idle power),
+the DDI wells drive the port PHY, which the driver expects to power-cycle when
+it re-trains the link on the next boot. Holding them on can leave the display
+black after a guest reboot. Verify the display returns after a reboot with this
+applied; if it does not, drop 0x45454 from igd_pwr_well_aux_ddi[] and keep AUX
+only.
+
+This addresses only the display-teardown path. The other reboot/power-off
+trigger - the PCI D3 + function-reset + decode edge - is not trappable in QEMU
+and needs the host kernel's vfio-pci settle-window fix.
+
+Signed-off-by: Renê de Souza Pinto <rene@renesp.com.br>
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+---
+ hw/vfio/igd.c | 31 +++++++++++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/tools/qemu-xen/hw/vfio/igd.c b/tools/qemu-xen/hw/vfio/igd.c
+index c2e5107a44..d3f6218b55 100644
+--- a/tools/qemu-xen/hw/vfio/igd.c
++++ b/tools/qemu-xen/hw/vfio/igd.c
+@@ -22,6 +22,37 @@
+                                             &pwquirk->mem[0], 1);
+         QLIST_INSERT_HEAD(&vdev->bars[nr].quirks, pwquirk, next);
+     }
++
++    /*
++     * AUX (0x45444) and DDI (0x45454) power-well clamp (gen9+): the DRIVER-copy
++     * registers for the AUX and DDI/PHY wells, same request/state layout and the
++     * same BAR0 page.  A guest tearing the display down at shutdown/reboot powers
++     * these down too, so hold them on with the same accumulate-on logic.
++     *
++     * NOTE: holding DDI/PHY wells on can interfere with port re-training on the
++     * next boot - verify the display returns after a guest reboot; if not, drop
++     * 0x45454 and keep only AUX.
++     */
++    if (gen >= 9) {
++        static const uint32_t igd_pwr_well_aux_ddi[] = { 0x45444, 0x45454 };
++        unsigned k;
++
++        for (k = 0; k < ARRAY_SIZE(igd_pwr_well_aux_ddi); k++) {
++            VFIOQuirk *q = vfio_quirk_alloc(1);
++            IGDPwrWellQuirk *pq = q->data = g_malloc0(sizeof(*pq));
++
++            pq->vdev = vdev;
++            pq->bar = nr;
++            pq->bar_offset = igd_pwr_well_aux_ddi[k];
++            memory_region_init_io(&q->mem[0], OBJECT(vdev),
++                                  &igd_pwr_well_ops, pq,
++                                  "vfio-igd-pwr-well-aux-ddi-quirk", 4);
++            memory_region_add_subregion_overlap(vdev->bars[nr].region.mem,
++                                                igd_pwr_well_aux_ddi[k],
++                                                &q->mem[0], 1);
++            QLIST_INSERT_HEAD(&vdev->bars[nr].quirks, q, next);
++        }
++    }
+ }
+ 
+ void vfio_probe_igd_bar4_quirk(VFIOPCIDevice *vdev, int nr)
+-- 
+2.43.0
