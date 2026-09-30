@@ -1,0 +1,126 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Renê de Souza Pinto <rene@renesp.com.br>
+Date: Wed, 30 Sep 2026 12:00:00 +0000
+Subject: [PATCH] vfio/igd: keep render/media slice power-gating off for an assigned iGPU
+
+Companion to the RC6 clamp (patch 21). GEN9_PG_ENABLE / POWERGATE_ENABLE
+(BAR0 0xA210) arms render/media/VD slice power-gating, a GT power domain
+separate from RC6. A trace of a real freeze showed the guest writing it
+(0x3 -> 0x7 -> 0x7ffff, enabling render + media + all VD/VEBOX slice power
+gates) alongside RC6.
+
+A register access to a power-gated slice needs forcewake, exactly like RC6; if
+it lands while the slice is gated the access never completes and the host wedges
+(root-complex-integrated endpoint, no completion timeout). The trace confirmed
+the guest touches only 0xA090 (RC6) and 0xA210 in the GT power domain - the
+per-unit PGCTLREQ (0x24xxx) and WAIT_FOR_RC6_EXIT (0x0xxCC) registers are
+GuC/firmware-managed and never written by the guest, so this completes the GT
+power-domain coverage.
+
+Mask the power-gate-enable bits (0x0007ffff) out of guest writes so render/media
+engines stay powered; reads pass through. Reuses IGDPwrWellQuirk. 0xA210 is on
+the same 0xA000 BAR0 page the RC6 clamp already traps, so this adds no new page
+eviction and no extra vmexit cost.
+
+Note (per TGL PRM): a disabled DISPLAY power well fails gracefully (access
+completes, reads 0) - the GT domain does not, which is why the RC6 + PG clamps
+target it. The firmware fix (newer BIOS) remains the more principled solution;
+these clamps are the workaround for units on old firmware.
+
+Signed-off-by: Renê de Souza Pinto <rene@renesp.com.br>
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+---
+ hw/vfio/igd.c | 71 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 71 insertions(+)
+
+diff --git a/tools/qemu-xen/hw/vfio/igd.c b/tools/qemu-xen/hw/vfio/igd.c
+index e7a4c1902f..f1b2d3c4a5 100644
+--- a/tools/qemu-xen/hw/vfio/igd.c
++++ b/tools/qemu-xen/hw/vfio/igd.c
+@@ -4,6 +4,56 @@
+     .endianness = DEVICE_LITTLE_ENDIAN,
+ };
+ 
++/*
++ * IGD BAR0 POWERGATE_ENABLE (0xA210) clamp quirk.
++ *
++ * GEN9_PG_ENABLE arms render / media / VD slice power-gating (bits 0-18),
++ * separate from RC6.  A register access to a power-gated slice needs forcewake,
++ * exactly like RC6; if it lands while the slice is gated the access wedges the
++ * host.  Mask the power-gate-enable bits out of guest writes so the slices stay
++ * powered.  Reads pass through.  Same 0xA000 BAR0 page as the RC6 clamp, so no
++ * new page is trapped.  Cost is GT idle power.
++ */
++#define IGD_POWERGATE_ENABLE   0xa210
++#define IGD_PG_ENABLE_MASK     0x0007ffffu
++
++static uint64_t igd_pg_enable_read(void *opaque, hwaddr addr, unsigned size)
++{
++    IGDPwrWellQuirk *q = opaque;
++    VFIOPCIDevice *vdev = q->vdev;
++
++    return vfio_region_read(&vdev->bars[q->bar].region,
++                            addr + q->bar_offset, size);
++}
++
++static void igd_pg_enable_write(void *opaque, hwaddr addr,
++                                uint64_t data, unsigned size)
++{
++    IGDPwrWellQuirk *q = opaque;
++    VFIOPCIDevice *vdev = q->vdev;
++    uint64_t clamped = data;
++
++    if (size == 4) {
++        clamped = data & ~(uint64_t)IGD_PG_ENABLE_MASK;
++        if (clamped != data) {
++            error_report_once("IGD quirk: denying guest slice power-gate enable "
++                              "(guest wrote 0x%" PRIx64 ", forcing 0x%" PRIx64
++                              "); render/media stay powered while the iGPU is "
++                              "assigned", data, clamped);
++        }
++    }
++
++    vfio_region_write(&vdev->bars[q->bar].region,
++                      addr + q->bar_offset, clamped, size);
++}
++
++static const MemoryRegionOps igd_pg_enable_ops = {
++    .read = igd_pg_enable_read,
++    .write = igd_pg_enable_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++};
++
++
+ void vfio_probe_igd_bar0_quirk(VFIOPCIDevice *vdev, int nr)
+ {
+     int gen = igd_gen(vdev);
+@@ -23,6 +73,27 @@
+                                             &rcquirk->mem[0], 1);
+         QLIST_INSERT_HEAD(&vdev->bars[nr].quirks, rcquirk, next);
+     }
++
++    /*
++     * POWERGATE_ENABLE (0xA210) clamp (gen9+): keep the guest from arming
++     * render/media slice power-gating, so those engines stay awake and an MMIO
++     * access cannot race a slice power-gate.  See igd_pg_enable_write().
++     */
++    if (gen >= 9) {
++        VFIOQuirk *pgquirk = vfio_quirk_alloc(1);
++        IGDPwrWellQuirk *pq = pgquirk->data = g_malloc0(sizeof(*pq));
++
++        pq->vdev = vdev;
++        pq->bar = nr;
++        pq->bar_offset = IGD_POWERGATE_ENABLE;
++        memory_region_init_io(&pgquirk->mem[0], OBJECT(vdev),
++                              &igd_pg_enable_ops, pq,
++                              "vfio-igd-pg-enable-quirk", 4);
++        memory_region_add_subregion_overlap(vdev->bars[nr].region.mem,
++                                            IGD_POWERGATE_ENABLE,
++                                            &pgquirk->mem[0], 1);
++        QLIST_INSERT_HEAD(&vdev->bars[nr].quirks, pgquirk, next);
++    }
+ }
+ 
+ void vfio_probe_igd_bar4_quirk(VFIOPCIDevice *vdev, int nr)
+-- 
+2.43.0
