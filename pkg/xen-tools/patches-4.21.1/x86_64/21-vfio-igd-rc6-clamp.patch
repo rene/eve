@@ -1,0 +1,139 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Renê de Souza Pinto <rene@renesp.com.br>
+Date: Wed, 30 Sep 2026 12:00:00 +0000
+Subject: [PATCH] vfio/igd: keep RC6 render power-gating off for an assigned iGPU
+
+The display/PCI power clamps (patches 18-20) and igd_virtual_pm cover the
+display power wells, DC states and PCI D3, but not the third power domain:
+GT render power (RC6).
+
+A qemu simpletrace of a real freeze (idle Windows guest, x-no-mmap=on, no
+clamps) showed GEN6_RC_CONTROL (BAR0 0xa090) armed with RC6 enabled
+(0x00040000, bit 18) and heavy forcewake traffic (FORCEWAKE_GT 0xa188 written
+662x, FORCEWAKE_ACK 0x130044 read 878x) - the driver waking the GT from RC6 on
+every register access. No display/PCI power transition occurred in the final
+31-62 s before the wedge; the fatal transition was RC6, which is hardware-
+automatic once armed and therefore invisible as a driver "PM transition".
+
+Waking the GT from RC6 restores GT context from memory; on a bandwidth-limited
+config (single-channel UHD) that window is wide, an MMIO access landing in it
+never completes, and the CPU stalls on an unresponsive root-complex GPU - the
+whole host wedges silently (no MCE, no panic). This is why the display/PCI
+clamps helped enormously (they removed the bulk of the power-domain churn,
+seconds -> days) but never fully fixed it, and why dual-channel Iris - which
+restores ~2x faster and wins the race - does not exhibit it.
+
+Mask the RC6-enable bits (RC6/RC6p/RC6pp, bits 16-18) out of guest writes to
+0xa090 so RC6 is never armed and the render engine stays awake; reads pass
+through. Cost is GT idle power. Reuses IGDPwrWellQuirk and igd_pwr_well_ops'
+sibling pattern.
+
+CAVEAT: 0xa090 shares the 0xa000 BAR0 page with the forcewake registers, so a
+4-byte quirk overlay evicts that page from the KVM memslot - with mmap enabled
+this adds vmexits on forcewake access (a perf cost); with x-no-mmap=on
+everything already traps.
+
+Signed-off-by: Renê de Souza Pinto <rene@renesp.com.br>
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+---
+ hw/vfio/igd.c | 78 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 78 insertions(+)
+
+diff --git a/tools/qemu-xen/hw/vfio/igd.c b/tools/qemu-xen/hw/vfio/igd.c
+index d3f6218b55..e7a4c1902f 100644
+--- a/tools/qemu-xen/hw/vfio/igd.c
++++ b/tools/qemu-xen/hw/vfio/igd.c
+@@ -4,6 +4,63 @@
+     .endianness = DEVICE_LITTLE_ENDIAN,
+ };
+ 
++/*
++ * IGD BAR0 GEN6_RC_CONTROL clamp quirk.
++ *
++ * RC6 render power-gating: once the guest arms it (0xa090 bit 18) the GT
++ * autonomously power-gates when idle and is force-woken on every register
++ * access.  Waking from RC6 restores GT context from memory; on a bandwidth-
++ * limited config that window is wide, and an MMIO access landing in it never
++ * completes and wedges the host - the same silent freeze as the display power
++ * wells, on the GT power domain instead.
++ *
++ * Mask the RC6-enable bits out of guest writes so RC6 is never armed and the
++ * render engine stays awake.  Reads pass through.  Cost is GT idle power.
++ *
++ * NOTE: 0xa090 shares the 0xa000 BAR0 page with the forcewake registers, so
++ * with mmap enabled this evicts that page and adds vmexits on forcewake access;
++ * with x-no-mmap=on everything already traps.
++ */
++#define IGD_GEN6_RC_CONTROL         0xa090
++#define IGD_RC_CTL_RC6_ENABLE_MASK  0x00070000u  /* RC6pp|RC6p|RC6 enable (bits 16-18) */
++
++static uint64_t igd_rc6_read(void *opaque, hwaddr addr, unsigned size)
++{
++    IGDPwrWellQuirk *q = opaque;
++    VFIOPCIDevice *vdev = q->vdev;
++
++    return vfio_region_read(&vdev->bars[q->bar].region,
++                            addr + q->bar_offset, size);
++}
++
++static void igd_rc6_write(void *opaque, hwaddr addr,
++                          uint64_t data, unsigned size)
++{
++    IGDPwrWellQuirk *q = opaque;
++    VFIOPCIDevice *vdev = q->vdev;
++    uint64_t clamped = data;
++
++    if (size == 4) {
++        clamped = data & ~(uint64_t)IGD_RC_CTL_RC6_ENABLE_MASK;
++        if (clamped != data) {
++            error_report_once("IGD quirk: denying guest RC6 enable "
++                              "(guest wrote 0x%" PRIx64 ", forcing 0x%" PRIx64
++                              "); render power-gating stays off while the iGPU "
++                              "is assigned", data, clamped);
++        }
++    }
++
++    vfio_region_write(&vdev->bars[q->bar].region,
++                      addr + q->bar_offset, clamped, size);
++}
++
++static const MemoryRegionOps igd_rc6_ops = {
++    .read = igd_rc6_read,
++    .write = igd_rc6_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++};
++
++
+ void vfio_probe_igd_bar0_quirk(VFIOPCIDevice *vdev, int nr)
+ {
+     int gen = igd_gen(vdev);
+@@ -28,6 +85,27 @@
+             QLIST_INSERT_HEAD(&vdev->bars[nr].quirks, q, next);
+         }
+     }
++
++    /*
++     * GEN6_RC_CONTROL (0xa090) clamp (gen9+): keep the guest from arming RC6
++     * render power-gating, so the GT stays awake and an MMIO access cannot race
++     * an RC6 wake.  See igd_rc6_write().
++     */
++    if (gen >= 9) {
++        VFIOQuirk *rcquirk = vfio_quirk_alloc(1);
++        IGDPwrWellQuirk *rq = rcquirk->data = g_malloc0(sizeof(*rq));
++
++        rq->vdev = vdev;
++        rq->bar = nr;
++        rq->bar_offset = IGD_GEN6_RC_CONTROL;
++        memory_region_init_io(&rcquirk->mem[0], OBJECT(vdev),
++                              &igd_rc6_ops, rq,
++                              "vfio-igd-rc6-quirk", 4);
++        memory_region_add_subregion_overlap(vdev->bars[nr].region.mem,
++                                            IGD_GEN6_RC_CONTROL,
++                                            &rcquirk->mem[0], 1);
++        QLIST_INSERT_HEAD(&vdev->bars[nr].quirks, rcquirk, next);
++    }
+ }
+ 
+ void vfio_probe_igd_bar4_quirk(VFIOPCIDevice *vdev, int nr)
+-- 
+2.43.0
