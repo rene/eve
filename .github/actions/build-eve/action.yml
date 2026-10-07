@@ -58,7 +58,7 @@ runs:
       shell: bash
       run: |
         make cache-export ZARCH=${{ inputs.arch }} \
-          IMAGE=lfedge/eve:$VERSION-${{ inputs.hv }} \
+          IMAGE=${LINUXKIT_PKG_ORG:-lfedge}/eve:$VERSION-${{ inputs.hv }} \
           OUTFILE=eve-${{ inputs.hv }}-${{ inputs.arch }}-${{ inputs.platform }}.tar \
           IMAGE_NAME=$TAG-${{ inputs.hv }}-${{ inputs.arch }}
     - name: Upload EVE image
