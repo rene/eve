@@ -1,4 +1,5 @@
 FROM lfedge/eve-alpine:ef20bcb617db5545765f4d7486621cf606e5595e AS build
+# [DO NOT MERGE] force a rebuild of this package to exercise the Zot push path
 
 ENV PKGS mtools dosfstools
 RUN eve-alpine-deploy.sh
