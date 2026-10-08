@@ -189,6 +189,19 @@ issues the power request and the real power well brings DBUF up. Native Linux
 i915 does not hit this because it force-drives `POWER_REQUEST` at load regardless
 of the readout; the Windows driver trusts the readout.
 
+**Patches 18-22 — power-management register clamps** (Gen9+, opt-in): on some
+hosts an assigned iGPU can wedge the whole host silently (no MCE, no panic, no
+log) when a CPU access lands on a display or GT block the guest has powered down
+or is bringing back up. These patches trap the guest's writes to `DC_STATE_EN`
+(deny DC5/DC6/DC9 entry), the display power-well controls `PWR_WELL_CTL`, AUX and
+DDI (hold requested wells on), `GEN6_RC_CONTROL` (never arm RC6) and
+`POWERGATE_ENABLE` (never arm render/media slice power-gating); reads pass
+through. The cost is iGPU idle power, extra trapped BAR0 pages, and holding the
+DDI/PHY wells on may interfere with port re-training across guest reboots.
+Patch 23 makes them opt-in through the vfio-pci property `x-igd-regclamp`
+(default off), which EVE sets when the `igpu.regclamp` configuration property is
+`true`.
+
 ---
 
 ## What works and what does not

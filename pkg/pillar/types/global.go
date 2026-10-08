@@ -481,6 +481,14 @@ const (
 	// display still works; just no pre-OS framebuffer).
 	IGPUGOPFile GlobalSettingKey = "igpu.gop"
 
+	// IGPURegClamp: when true, add x-igd-regclamp=on to the Intel iGPU
+	// vfio-pci device so qemu traps the guest's power-management register
+	// writes (DC_STATE_EN, display power wells, RC6, slice power-gating) and
+	// keeps those blocks powered.  Works around a silent host wedge seen on
+	// some hosts when the guest races a powered-down block, at the cost of
+	// iGPU idle power.  Off by default.
+	IGPURegClamp GlobalSettingKey = "igpu.regclamp"
+
 	// EnableEFIDebug: when true, OVMF DEBUG() output is captured to
 	// /run/hypervisor/kvm/<dom>/efi-debug.log via QEMU's isa-debugcon at
 	// I/O port 0x402.  Off by default.  Note that DEBUG() macros are
@@ -1301,6 +1309,7 @@ func NewConfigItemSpecMap() ConfigItemSpecMap {
 	configItemSpecMap.AddStringItem(QemuTraceEvents, "", blankValidator)
 	configItemSpecMap.AddBoolItem(QemuGdb, false)
 	configItemSpecMap.AddBoolItem(QemuIgpuNoMmap, false)
+	configItemSpecMap.AddBoolItem(IGPURegClamp, false)
 	configItemSpecMap.AddBoolItem(DataStoreAllowInsecureAuth, false)
 
 	// Add TriState Items

@@ -529,6 +529,9 @@ const qemuPCIPassthruTemplate = `
 {{- if .NoMmap }}
   x-no-mmap = "on"
 {{- end}}
+{{- if .RegClamp }}
+  x-igd-regclamp = "on"
+{{- end}}
 `
 
 const qemuSerialTemplate = `
@@ -616,6 +619,7 @@ type tQemuPCIPassthruContext struct {
 	Bus          string
 	Addr         string
 	NoMmap       bool // x-no-mmap=on: trap all BAR access instead of mmap (debug; iGPU only)
+	RegClamp     bool // x-igd-regclamp=on: clamp guest power-management register writes (iGPU only)
 }
 
 // Context for qemuPCIeRootPortTemplate.
@@ -1489,6 +1493,7 @@ type pciAssignmentsTemplateFiller struct {
 	domainUUID           string
 	gopRomFilename       string // value of igpu.gop config (basename) — empty = use bundled OSS ROM
 	igpuNoMmap           bool   // debug.qemu.igpu.no.mmap: add x-no-mmap=on to the iGPU vfio-pci device
+	igpuRegClamp         bool   // igpu.regclamp: add x-igd-regclamp=on to the iGPU vfio-pci device
 }
 
 func (f *pciAssignmentsTemplateFiller) pciEBridge(pciID int, pciWOFunction string) error {
@@ -1553,6 +1558,12 @@ func (f *pciAssignmentsTemplateFiller) do(pciAssignments []pciDevice) error {
 				logrus.Warnf("iGPU passthrough: domain %s x-no-mmap=on "+
 					"(debug.qemu.igpu.no.mmap) — traps all iGPU BAR access, "+
 					"large performance cost", f.domainUUID)
+			}
+			pciPTContext.RegClamp = f.igpuRegClamp
+			if f.igpuRegClamp {
+				logrus.Infof("iGPU passthrough: domain %s x-igd-regclamp=on "+
+					"(igpu.regclamp) — guest power-management register "+
+					"writes are clamped", f.domainUUID)
 			}
 			logrus.Infof("iGPU passthrough: domain %s placing %s at guest BDF 00:02.0",
 				f.domainUUID, pa.ioBundle.PciLong)
@@ -1762,13 +1773,14 @@ func (ctx KvmContext) CreateDomConfig(domainName string,
 	bootOrder := bootOrderToFwCfgString(config.BootOrder)
 	hasIntelIGPU := detectIntelIGPU(config.IoAdapterList, aa)
 
-	var efiDebug, dumpGuestCore, igpuNoMmap bool
+	var efiDebug, dumpGuestCore, igpuNoMmap, igpuRegClamp bool
 	var gopRomFilename string
 	if globalConfig != nil {
 		efiDebug = globalConfig.GlobalValueBool(types.EnableEFIDebug)
 		dumpGuestCore = globalConfig.GlobalValueBool(types.QemuProcessCoreGuestRAM)
 		gopRomFilename = globalConfig.GlobalValueString(types.IGPUGOPFile)
 		igpuNoMmap = globalConfig.GlobalValueBool(types.QemuIgpuNoMmap)
+		igpuRegClamp = globalConfig.GlobalValueBool(types.IGPURegClamp)
 	}
 
 	// id.json (LPC device ID spoof) only applies on the proprietary GOP
@@ -1952,6 +1964,7 @@ func (ctx KvmContext) CreateDomConfig(domainName string,
 		domainUUID:           config.UUIDandVersion.UUID.String(),
 		gopRomFilename:       gopRomFilename,
 		igpuNoMmap:           igpuNoMmap,
+		igpuRegClamp:         igpuRegClamp,
 	}
 	err = pciAssignmentsFiller.do(pciAssignments)
 	if err != nil {
