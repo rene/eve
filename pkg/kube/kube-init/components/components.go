@@ -766,8 +766,8 @@ func copyOptionalNvidiaManifest() error {
 		}
 		return fmt.Errorf("stat %s: %w", nvidiaVendorDir, err)
 	}
-	nvSrc := filepath.Join(manifestsSrc, "nvidia-device-plugin-18.0.yml")
-	nvDst := filepath.Join(manifestsDst, "nvidia-device-plugin-18.0.yml")
+	nvSrc := filepath.Join(manifestsSrc, "nvidia-device-plugin.yml")
+	nvDst := filepath.Join(manifestsDst, "nvidia-device-plugin.yml")
 	if _, err := os.Stat(nvSrc); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
