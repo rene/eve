@@ -5,6 +5,8 @@
 
 FROM lfedge/eve-alpine:080e2b4c683508649d72d2ae9b166153d819ca5d AS build-arm64
 
+# FORCE BUILD
+
 ARG BUILD_PKGS="bash binutils-dev bsd-compat-headers build-base bc bison \
   cmake flex openssl-dev util-linux-dev linux-headers swig git gnutls-dev \
   perl python3 python3-dev py3-setuptools py3-pycryptodome py3-elftools pkgconfig"
