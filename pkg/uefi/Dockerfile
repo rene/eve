@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile-upstream:1.5.0-rc2-labs
+# [TEST ONLY] force a rebuild to exercise authenticated ADD git fetches
 # Instructions for this package are taken from:
 #   https://wiki.ubuntu.com/UEFI/EDK2
 #   https://wiki.linaro.org/LEG/UEFIforQEMU
