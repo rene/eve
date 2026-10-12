@@ -2437,6 +2437,13 @@ func (d *daemon) runHealthWorker(ctx context.Context, mon *monitor.Monitor, sup 
 		log.Printf("WARNING: reconcile SR-IOV manifests: %v", err)
 	}
 
+	// Refresh the NVIDIA device-plugin manifest so upgraded nodes pick
+	// up the one shipped in the new image; the first-boot copy never
+	// runs again once the node is initialized.
+	if err := components.ReconcileNvidiaManifest(); err != nil {
+		log.Printf("WARNING: reconcile NVIDIA manifest: %v", err)
+	}
+
 	// Keep the stale-mount-cleanup daemon alive. It shares the
 	// kubelet mount namespace (inside the kube container) and
 	// reaps stale Longhorn CSI block-volume staging mounts that
