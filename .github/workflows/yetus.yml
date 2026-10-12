@@ -53,7 +53,7 @@ jobs:
           docker run --rm \
             -v ${{ github.workspace }}:/workspace \
             -v /tmp/gitconfig:/etc/gitconfig \
-            lfedge/eve-yetus:0.15.1-eve-2 \
+            renezededa/eve-yetus:0.15.1-eve-2 \
             test-patch \
             --basedir=/workspace/src \
             --patch-dir=/workspace/out \
