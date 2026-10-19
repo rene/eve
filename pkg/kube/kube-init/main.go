@@ -1783,6 +1783,13 @@ func (d *daemon) enterStartingK3s(ctx context.Context) {
 		d.supervisor = k3s.NewSupervisor()
 	}
 
+	// Refresh the staged NVIDIA manifest before k3s applies it. The
+	// steady-state tick only runs after the system pods are Ready, and a
+	// stale manifest can keep the plugin pod from ever becoming Ready.
+	if err := components.ReconcileNvidiaManifest(); err != nil {
+		log.Printf("WARNING: reconcile NVIDIA manifest: %v", err)
+	}
+
 	if err := d.supervisor.Start(); err != nil {
 		log.Printf("failed to start k3s: %v", err)
 		if ctx.Err() == nil {
