@@ -24,8 +24,8 @@ ENV JETPACK7_DEB=nvidia-l4t-firmware-openrm_38.4.0-20251230160601_arm64.deb
 ENV JETPACK7_URL=https://repo.download.nvidia.com/jetson/som/pool/main/n/nvidia-l4t-firmware-openrm/${JETPACK7_DEB}
 
 # Nvidia firmware for NVIDIA GB10 platform
-ENV GB10_DEB=nvidia-firmware-580-580.159.03_580.159.03-0ubuntu0.24.04.1_arm64.deb
-ENV GB10_URL=http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-580/nvidia-firmware-580-580.159.03_580.159.03-0ubuntu0.24.04.1_arm64.deb
+ENV GB10_DEB=nvidia-firmware-595-595.99.02_595.99.02-0ubuntu0.24.04.1_arm64.deb
+ENV GB10_URL=http://ports.ubuntu.com/ubuntu-ports/pool/restricted/n/nvidia-graphics-drivers-595/nvidia-firmware-595-595.99.02_595.99.02-0ubuntu0.24.04.1_arm64.deb
 
 FROM build-base AS generic
 ENV NVIDIA_FW_TEGRA=${JETPACK5_DEB}
