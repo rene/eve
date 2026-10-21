@@ -167,9 +167,20 @@ RUN if [ ! -f /rootfs-dist/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.1 ]; then \
            /rootfs-dist/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.1 ; \
     fi
 
+# GB10 and GB300 differ in the GPU's UUID, PCI address and DRM nodes, so the
+# CDI device entries are generated at boot by nv-init.sh. Only the
+# board-independent part of the spec ships, outside /etc/cdi, for nv-init.sh
+# to complete into /run/cdi.
+RUN mkdir -p /cdi-base && \
+    if [ "${NVIDIA_VER}" = "gb10" ]; then \
+        yq 'del(.devices)' /cdi-dist/gb10.yaml > /cdi-base/nvidia-base.yaml && \
+        rm /cdi-dist/gb10.yaml ; \
+    fi
+
 FROM scratch AS out-jetson
 
-COPY --from=build /cdi-dist/*.yaml /etc/cdi/
+COPY --from=build /cdi-dist/ /etc/cdi/
+COPY --from=build /cdi-base/ /opt/vendor/nvidia/etc/cdi/
 COPY --from=build /rules.d/* /opt/vendor/nvidia/etc/udev/rules.d/
 COPY --from=build /rootfs-dist/ /opt/vendor/nvidia/dist/
 COPY --from=build /ldconfig-bin/* /opt/vendor/nvidia/bin/
