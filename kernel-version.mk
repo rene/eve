@@ -61,7 +61,7 @@ else ifeq ($(ZARCH), arm64)
         KVER_nvidia-jp5=v5.10.192
         KVER_nvidia-jp6=v5.15.136
         KVER_nvidia-jp7=v6.8.12
-        KVER_nvidia-gb10=v6.17.13
+        KVER_nvidia-gb10=v7.0.14
 
         KERNEL_FLAVOR=$(PLATFORM)
         KERNEL_VERSION=$(KVER_$(PLATFORM))
