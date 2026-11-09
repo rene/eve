@@ -3,67 +3,101 @@
 # Copyright (c) 2026 Zededa, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
+# Qualcomm userspace components required by QTI platforms (IQ8/IQ9). The
+# versions follow the Qualcomm Linux BSP (QLI 2.1, meta-qcom) recipes, so EVE
+# runs the same userspace as the reference BSP.
+#
+# NOTE: the QRTR name service and the protection-domain mapper are provided by
+# the kernel (CONFIG_QRTR and CONFIG_QCOM_PD_MAPPER), as in the BSP, so the
+# userspace qrtr-ns and pd-mapper are intentionally not shipped.
+
 FROM lfedge/eve-alpine:edcb4dbc2f973b82676381a236165ce924149f2d AS build
-ENV BUILD_PKGS="autoconf automake build-base bsd-compat-headers eudev-dev eudev-libs glib glib-dev json-c json-c-dev libbsd libbsd-dev libtool linux-headers git meson pkgconfig xz-dev xz-libs yaml yaml-dev"
-ENV PKGS="alpine-baselayout eudev-libs fts libbsd glib json-c xz-libs yaml"
+ENV BUILD_PKGS="autoconf automake build-base bsd-compat-headers eudev-dev git glib-dev libbsd-dev libtool linux-headers meson pkgconf yaml-dev zstd-dev"
 RUN eve-alpine-deploy.sh
 
-# Build qmi-framework
-ENV QMI_FRAMEWORK_VERSION=v0.1.3
-ADD --keep-git-dir=true https://github.com/quic/qmi-framework.git#${QMI_FRAMEWORK_VERSION} /qmi-framework
-WORKDIR /qmi-framework
-RUN autoreconf --install && \
-      CFLAGS="-DPTHREAD_MUTEX_RECURSIVE_NP=PTHREAD_MUTEX_RECURSIVE -D_BSD_SOURCE -include endian.h" ./configure --prefix=/usr && \
-      make -j "$(getconf _NPROCESSORS_ONLN)" && \
-      make -j "$(getconf _NPROCESSORS_ONLN)" install
+# Staging directory: only what is installed here ends up in the final image
+ENV STAGE=/qti-out
 
-# Build libqrtr
-ENV LIBQRTR_REV=8991f0e93713ebf4da48ae4f23940ead42f64c8c
-ADD --keep-git-dir=true https://gitlab.freedesktop.org/mobile-broadband/libqrtr-glib.git#${LIBQRTR_REV} /libqrtr
-WORKDIR /libqrtr
-RUN meson build --buildtype=release --prefix=/usr --sysconfdir=/etc --libdir=/usr/lib \
+# libqrtr-glib (meta-openembedded: libqrtr-glib_git.bb, 1.2.2+git)
+# Not used by the services below, kept for modem support (libqmi/ModemManager)
+ENV LIBQRTR_GLIB_REV=8991f0e93713ebf4da48ae4f23940ead42f64c8c
+ADD --keep-git-dir=true https://gitlab.freedesktop.org/mobile-broadband/libqrtr-glib.git#${LIBQRTR_GLIB_REV} /libqrtr-glib
+WORKDIR /libqrtr-glib
+RUN meson setup build --buildtype=release --prefix=/usr --sysconfdir=/etc --libdir=/usr/lib \
           -Dgtk_doc=false -Dintrospection=false && \
     ninja -C build && \
-    ninja -C build install
+    ninja -C build install && \
+    DESTDIR="${STAGE}" ninja -C build install
 
-# Build qrtr
-ENV QRTR_REV=d0d471c96e7d112fac6f48bd11f9e8ce209c04d2
-ADD --keep-git-dir=true https://github.com/linux-msm/qrtr.git#${QRTR_REV} /qrtr
+# qrtr (meta-qcom: qrtr_1.2.bb)
+ENV QRTR_VERSION=v1.2
+ADD --keep-git-dir=true https://github.com/linux-msm/qrtr.git#${QRTR_VERSION} /qrtr
 WORKDIR /qrtr
-RUN make prefix=/usr && make prefix=/usr install
+RUN meson setup build --buildtype=release --prefix=/usr --libdir=/usr/lib \
+          -Dqrtr-ns=disabled -Dsystemd-service=disabled && \
+    ninja -C build && \
+    ninja -C build install && \
+    DESTDIR="${STAGE}" ninja -C build install
 
-# Build pd-mapper
-ENV PD_MAPPER_REV=10997ba7c43a3787a40b6b1b161408033e716374
-ADD --keep-git-dir=true https://github.com/linux-msm/pd-mapper.git#${PD_MAPPER_REV} /pd_mapper
-WORKDIR /pd_mapper
-RUN make prefix=/usr && make prefix=/usr install
+# tqftpserv (meta-qcom: tqftpserv_1.2.bb)
+ENV TQFTPSERV_VERSION=v1.2
+ADD --keep-git-dir=true https://github.com/linux-msm/tqftpserv.git#${TQFTPSERV_VERSION} /tqftpserv
+WORKDIR /tqftpserv
+# systemd-unit-prefix must be set (no systemd here), the unit is discarded below
+RUN meson setup build --buildtype=release --prefix=/usr \
+          -Dsystemd-unit-prefix=/usr/lib/systemd/system && \
+    ninja -C build && \
+    DESTDIR="${STAGE}" ninja -C build install
 
-# tqftpserv
-ENV TQFTP_REV=de42697a2466cc5ee267ffe36ab4e8494f005fb0
-ADD --keep-git-dir=true https://github.com/linux-msm/tqftpserv.git#${TQFTP_REV} /tftp
-WORKDIR /tftp
-RUN make prefix=/usr && make prefix=/usr install
+# rmtfs (meta-qcom: rmtfs_1.3.bb)
+ENV RMTFS_VERSION=v1.3
+ADD --keep-git-dir=true https://github.com/linux-msm/rmtfs.git#${RMTFS_VERSION} /rmtfs
+WORKDIR /rmtfs
+# qmi_rmtfs.[ch] are already generated in-tree, touch them so make doesn't try
+# to regenerate them with qmic (not available)
+RUN touch qmi_rmtfs.c qmi_rmtfs.h && \
+    make -j "$(getconf _NPROCESSORS_ONLN)" && \
+    make prefix=/usr DESTDIR="${STAGE}" install
 
-# fastrpc
-ENV FASTRPC_REV=8572ae1c45d38a4dc8853b1b9b6738207ab1ce94
-ADD --keep-git-dir=true https://github.com/qualcomm/fastrpc.git#${FASTRPC_REV} /fastrpc
+# fastrpc (meta-qcom: fastrpc_1.0.7.bb)
+ENV FASTRPC_VERSION=v1.0.7
+ADD --keep-git-dir=true https://github.com/qualcomm/fastrpc.git#${FASTRPC_VERSION} /fastrpc
 WORKDIR /fastrpc
-RUN autoreconf -i && \
-      ./configure --prefix=/usr && \
-      make -j "$(getconf _NPROCESSORS_ONLN)" && \
-      make -j "$(getconf _NPROCESSORS_ONLN)" install
+RUN autoreconf -fi && \
+    ./configure --prefix=/usr && \
+    make -j "$(getconf _NPROCESSORS_ONLN)" && \
+    make DESTDIR="${STAGE}" install
+
+# Drop everything not needed at runtime: headers, pkg-config/libtool files,
+# man pages, systemd units/sysusers and udev rules (EVE has no systemd and the
+# daemons are started by /etc/init.d/090-qti), and fastrpc test tools.
+RUN rm -rf "${STAGE}/usr/include" \
+           "${STAGE}/usr/lib/pkgconfig" \
+           "${STAGE}/usr/share" \
+           "${STAGE}/usr/lib/systemd" \
+           "${STAGE}/usr/lib/udev" \
+           "${STAGE}/usr/lib/sysusers.d" \
+           "${STAGE}/lib" \
+           "${STAGE}/usr/lib/fastrpc_test" \
+           "${STAGE}/usr/bin/fastrpc_test" \
+           "${STAGE}/usr/bin/dsp_check" && \
+    find "${STAGE}" -name '*.la' -delete
+
+# Pull in the runtime dependencies (glib, libbsd, yaml, zstd, eudev, ...) of
+# everything staged above, except musl itself which is already in the rootfs.
+RUN find "${STAGE}" -type f \( -perm -u+x -o -name '*.so*' \) -exec ldd {} \; 2>/dev/null | \
+        awk '$2 == "=>" && $3 ~ /^\// { print $3 }' | sort -u > /runtime-libs && \
+    while read -r lib; do \
+        case "$lib" in \
+            /lib/ld-musl-*|/lib/libc.musl-*) continue ;; \
+        esac ; \
+        [ -e "${STAGE}${lib}" ] && continue ; \
+        mkdir -p "${STAGE}$(dirname "$lib")" && cp -L "$lib" "${STAGE}${lib}" ; \
+    done < /runtime-libs && \
+    find "${STAGE}" -type f \( -perm -u+x -o -name '*.so*' \) -exec sh -c 'strip "$1" 2>/dev/null || true' _ {} \; && \
+    find "${STAGE}" \( -type f -o -type l \) | sort
 
 FROM scratch
 # hadolint ignore=DL3020
 ADD rootfs/ /
-COPY --from=build /usr/lib/* /usr/lib/
-COPY --from=build /usr/bin/qrtr-cfg /usr/bin/
-COPY --from=build /usr/bin/qrtr-lookup /usr/bin/
-COPY --from=build /usr/bin/qrtr-ns /usr/bin/
-COPY --from=build /usr/bin/pd-mapper /usr/bin/
-COPY --from=build /usr/bin/tqftpserv /usr/bin/
-COPY --from=build /usr/bin/adsprpcd /usr/bin/
-COPY --from=build /usr/bin/cdsprpcd /usr/bin/
-COPY --from=build /usr/bin/gdsprpcd /usr/bin/
-COPY --from=build /usr/bin/sdsprpcd /usr/bin/
-
+COPY --from=build /qti-out/ /
