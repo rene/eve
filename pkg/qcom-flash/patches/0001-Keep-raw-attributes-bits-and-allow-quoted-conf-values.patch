@@ -1,0 +1,99 @@
+From: Renê de Souza Pinto <rene@renesp.com.br>
+Subject: [PATCH] Keep raw --attributes bits and allow quoted conf values
+
+The conf/yaml loaders only extract bits 2 (bootable) and 60 (readonly) from
+--attributes and drop everything else, so type-specific GPT attribute bits
+can't be set (e.g. the ChromeOS/CoreOS gptprio priority/successful bits 48-56
+used by GRUB). Keep the remaining bits, pass them through partitions.xml as
+"attributes" and OR them into the GPT entry.
+
+Also split .conf lines with shlex so values containing spaces can be quoted,
+e.g. --name="EFI System".
+
+Signed-off-by: Renê de Souza Pinto <rene@renesp.com.br>
+---
+diff -ruN a/qcom_ptool/loaders/conf.py b/qcom_ptool/loaders/conf.py
+--- a/qcom_ptool/loaders/conf.py
++++ b/qcom_ptool/loaders/conf.py
+@@ -17,6 +17,7 @@
+
+ import getopt
+ import re
++import shlex
+ from collections.abc import Mapping
+
+ from qcom_ptool.spec import (
+@@ -108,6 +109,11 @@
+             attribute_bits = int(arg, 16)
+             entry["bootable"] = "true" if attribute_bits & (1 << 2) else "false"
+             entry["readonly"] = "true" if attribute_bits & (1 << 60) else "false"
++            # Keep every other bit so it reaches the GPT entry unchanged
++            # (e.g. type-specific bits 48-63 used by other A/B schemes).
++            extra_bits = attribute_bits & ~((1 << 2) | (1 << 60))
++            if extra_bits:
++                entry["attributes"] = "0x%016X" % extra_bits
+     for opt, arg in argv:
+         if opt in ("--lun", "--phys-part"):
+             phys_part = arg
+@@ -178,7 +184,7 @@
+
+ def parse_disk_line(line: str) -> DiskParams | None:
+     """Parse a single ``--disk ...`` line; return None if the line isn't one."""
+-    opts_list = line.split(" ")
++    opts_list = shlex.split(line)
+     if not opts_list or opts_list[0] != "--disk":
+         return None
+     options, _rem = getopt.gnu_getopt(opts_list[1:], "", _DISK_LONG_OPTS)
+@@ -194,7 +200,8 @@
+         image_map = {}
+     partitions: PartitionsByLun = {}
+     for line in lines:
+-        opts_list = line.split(" ")
++        # shlex allows quoted values with spaces, e.g. --name="EFI System"
++        opts_list = shlex.split(line)
+         if not opts_list or opts_list[0] != "--partition":
+             continue
+         options, _rem = getopt.gnu_getopt(opts_list[1:], "", _PARTITION_LONG_OPTS)
+diff -ruN a/qcom_ptool/loaders/yaml.py b/qcom_ptool/loaders/yaml.py
+--- a/qcom_ptool/loaders/yaml.py
++++ b/qcom_ptool/loaders/yaml.py
+@@ -105,6 +105,9 @@
+         attribute_bits = int(str(node["attributes"]), 16)
+         entry["bootable"] = "true" if attribute_bits & (1 << 2) else "false"
+         entry["readonly"] = "true" if attribute_bits & (1 << 60) else "false"
++        extra_bits = attribute_bits & ~((1 << 2) | (1 << 60))
++        if extra_bits:
++            entry["attributes"] = "0x%016X" % extra_bits
+     # Named fields mirror the .conf options; applied after attributes so they win.
+     if "bootable" in node:
+         entry["bootable"] = _bool_str(node["bootable"])
+diff -ruN a/qcom_ptool/ptool.py b/qcom_ptool/ptool.py
+--- a/qcom_ptool/ptool.py
++++ b/qcom_ptool/ptool.py
+@@ -1025,6 +1025,9 @@
+             Attributes |= 1 << 54
+         if PhyPartition[k][j]["unbootable"] == "true":
+             Attributes |= 1 << 55
++        # Raw attribute bits from --attributes (e.g. ChromeOS/CoreOS gptprio
++        # priority/tries/successful bits 48-56)
++        Attributes |= PhyPartition[k][j].get("attributes", 0)
+
+         print("Attributes\t\t0x%X" % Attributes)
+
+@@ -2010,6 +2013,7 @@
+                 Partition["active"] = "false"
+                 Partition["successful"] = "false"
+                 Partition["unbootable"] = "false"
++                Partition["attributes"] = 0  ## raw GPT attribute bits
+
+                 ##import pdb; pdb.set_trace()
+
+@@ -2069,6 +2073,8 @@
+                         Partition["tries_remaining"] = int(value)
+                     elif name == "priority":
+                         Partition["priority"] = int(value)
++                    elif name == "attributes":
++                        Partition["attributes"] = int(value, 16)
+                     elif name == "size":
+                         if len(value) == 0:
+                             PrintBigError("\nERROR: Invalid partition size")

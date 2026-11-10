@@ -204,6 +204,13 @@ EFI_PART=$(INSTALLER)/EFI
 BOOT_PART=$(INSTALLER)/boot
 BSP_IMX_PART=$(INSTALLER)/bsp-imx
 
+# QDL flash bundle for Qualcomm devices booting from UFS (see pkg/qcom-flash/README.md)
+# QCOM_BOARD: iq-9075-evk (IQ9) or iq-8275-evk (IQ8)
+# QCOM_DTB_BIN: optional firmware multi-DTB image for the dtb_a/dtb_b partitions
+QCOM_BOARD?=iq-9075-evk
+QCOM_DTB_BIN?=
+QCOMFLASH=$(BUILD_DIR)/qcomflash-$(QCOM_BOARD)
+
 SBOM?=$(ROOTFS)-$(PLATFORM).spdx.json
 SOURCES_DIR=$(BUILD_DIR)/sources
 COLLECTED_SOURCES=$(SOURCES_DIR)/collected_sources.tar.gz
@@ -504,7 +511,7 @@ PKGS=pkg/alpine $(PKGS_$(ZARCH))
 
 # these are the packages that, when built, also need to be loaded into docker
 # if you need a pkg to be loaded into docker, in addition to the lkt cache, add it here
-PKGS_DOCKER_LOAD=mkconf mkimage-iso-efi mkimage-raw-efi mkrootfs-ext4 mkrootfs-squash
+PKGS_DOCKER_LOAD=mkconf mkimage-iso-efi mkimage-raw-efi mkrootfs-ext4 mkrootfs-squash qcom-flash
 # these packages should exists for HOSTARCH as well as for ZARCH
 # alpine-base, alpine and cross-compilers are dependencies for others
 PKGS_HOSTARCH=alpine-base alpine cross-compilers $(PKGS_DOCKER_LOAD)
@@ -822,6 +829,7 @@ installer.tar: $(INSTALLER_TAR)
 installertar: $(INSTALLER_TAR)
 installer-img: $(INSTALLER_IMG)
 installer-%: $(INSTALLER).% current ; @echo "$@: Succeeded, INSTALLER_IMG=$<"
+qcomflash: $(QCOMFLASH) current ; $(QUIET): "$@: Succeeded, QCOMFLASH=$(QCOMFLASH)"
 collected_sources: $(COLLECTED_SOURCES)
 gosources: $(GOSOURCES)
 
@@ -951,6 +959,11 @@ $(INSTALLER_IMG): $(INSTALLER_TAR) | $(INSTALLER)
 $(INSTALLER).raw: $(INSTALLER_IMG) $(EFI_PART) $(BOOT_PART) $(CONFIG_IMG) $(BSP_IMX_PART) $(BIOS_IMG) | $(INSTALLER)
 	./tools/prepare-platform.sh "$(PLATFORM)" "$(BUILD_DIR)" "$(INSTALLER)"
 	./tools/makeflash.sh "mkimage-raw-efi" -C $| $@ "efi conf_win installer inventory_win"
+	$(QUIET): $@: Succeeded
+
+# pkg/qcom-flash is always checked (FORCE), so the bundle is always regenerated
+$(QCOMFLASH): $(EFI_PART) $(BOOT_PART) $(ROOTFS_IMGS) $(CONFIG_IMG) pkg/qcom-flash | $(INSTALLER)
+	./tools/makeqcomflash.sh $(QCOM_BOARD) $| $@ $(QCOM_DTB_BIN)
 	$(QUIET): $@: Succeeded
 
 $(INSTALLER).iso: $(INSTALLER_TAR) $(BSP_IMX_PART) $(BIOS_IMG) | $(INSTALLER)
@@ -1388,7 +1401,7 @@ kernel-tag:
 	@echo $(KERNEL_TAG)
 
 .PRECIOUS: rootfs-% $(ROOTFS)-%.img $(ROOTFS_COMPLETE)
-.PHONY: all clean test test-bpftrace test-all run pkgs help live rootfs config installer live current FORCE $(DIST) HOSTARCH image-set cache-export eden eden-cover coverage-merge
+.PHONY: all clean test test-bpftrace test-all run pkgs help live rootfs config installer live current qcomflash FORCE $(DIST) HOSTARCH image-set cache-export eden eden-cover coverage-merge
 FORCE:
 
 .PHONY: evetest
@@ -1481,6 +1494,7 @@ help:
 	@echo "   installer-raw        builds raw disk installer image (to be installed on bootable media)"
 	@echo "   installer-iso        builds an ISO installers image (to be installed on bootable media)"
 	@echo "   installer-net        builds a tarball of artifacts to be used for PXE booting"
+	@echo "   qcomflash            builds a QDL flash bundle for Qualcomm UFS devices (QCOM_BOARD=iq-9075-evk|iq-8275-evk)"
 	@echo
 	@echo "Commonly used run targets (note they don't automatically rebuild images they run):"
 	@echo "   run-compose          runs all EVE microservices via docker-compose deployment"

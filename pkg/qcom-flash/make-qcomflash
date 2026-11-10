@@ -1,0 +1,131 @@
+#!/bin/sh
+# Copyright (c) 2026 Zededa, Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Assemble a QDL flash bundle for a Qualcomm UFS device: boot firmware, CDT and
+# partition tables shipped in this image (see prepare-board.sh), plus EVE's own
+# partition images built from the inputs in /parts.
+#
+# Usage: make-qcomflash <board> [output dir]
+#
+# Inputs (/parts, the same directory used by mkimage-raw-efi):
+#   EFI/        GRUB EFI binaries (mandatory)
+#   boot/       extra files for the ESP root (optional)
+#   rootfs.img  EVE rootfs, written to IMGA (mandatory)
+#   config.img  CONFIG partition contents, FAT image (mandatory)
+#   dtb.bin     multi-DTB FIT VFAT image for the dtb_a/dtb_b partitions
+#               (optional; when missing, those partitions are not written).
+#               The DTB_BIN environment variable can point to another path.
+#
+# The output directory (default /out) is flashed with:
+#   qdl --storage ufs prog_firehose_ddr.elf rawprogram*.xml patch*.xml
+#
+set -e
+
+BOARD="$1"
+OUT="${2:-/out}"
+PARTS=/parts
+DTB_BIN="${DTB_BIN:-$PARTS/dtb.bin}"
+FLASH_DIR=/qcom-flash
+SECTOR=4096
+# Sizes of EVE's FAT partitions in KB, they must match partitions/eve-lun0.conf
+EFI_PART_KB=2097152
+CONF_PART_KB=5120
+
+bail() {
+    echo "make-qcomflash: ERROR: $*" >&2
+    exit 1
+}
+
+if [ -z "$BOARD" ] || [ ! -d "$FLASH_DIR/$BOARD" ]; then
+    echo "Usage: $0 <board> [output dir]" >&2
+    echo "Supported boards: $(find "$FLASH_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort | tr '\n' ' ')" >&2
+    exit 1
+fi
+[ -d "$PARTS/EFI" ] || bail "$PARTS/EFI not found"
+[ -f "$PARTS/rootfs.img" ] || bail "$PARTS/rootfs.img not found"
+[ -f "$PARTS/config.img" ] || bail "$PARTS/config.img not found"
+[ -d "$OUT" ] || bail "output directory $OUT not found"
+
+# FAT images must use the same logical sector size as the UFS LUN (4KB):
+# Linux refuses to mount a FAT whose sector size is smaller than the one of the
+# block device, and so does the UEFI FAT driver.
+#
+# mkvfat <image> <size in KB> <label> [source dir]
+mkvfat() {
+    rm -f "$1"
+    if [ "$2" -ge 262144 ]; then
+        mkfs.vfat -F 32 -S "$SECTOR" -s 1 -n "$3" -C "$1" "$2" > /dev/null
+    else
+        mkfs.vfat -S "$SECTOR" -s 1 -n "$3" -C "$1" "$2" > /dev/null
+    fi
+    if [ -n "$4" ] && [ -n "$(ls -A "$4")" ]; then
+        mcopy -i "$1" -s -p -Q -m "$4"/* ::/
+    fi
+    # Drop trailing zeros: unused FAT clusters don't need to be written to the
+    # device, so the image only holds the filesystem metadata and the files,
+    # while the filesystem still spans the whole partition.
+    trim-image "$1" "$SECTOR"
+}
+
+# Start from a clean output, keep the directory itself (it may be a mount point)
+find "$OUT" -mindepth 1 -delete
+
+echo "make-qcomflash: board $BOARD"
+cp -a "$FLASH_DIR/$BOARD/." "$OUT/"
+
+### ESP (EFI System, partition 1): same content as make-raw's do_efi()
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+mkdir -p "$WORK/efifs"
+cp -Lr "$PARTS/EFI" "$WORK/efifs/EFI"
+grub_efi=$(cd "$WORK/efifs" && echo EFI/BOOT/BOOT*EFI)
+[ -f "$WORK/efifs/$grub_efi" ] || bail "no GRUB EFI binary in $PARTS/EFI/BOOT"
+# Keep in sync with the grub.cfg embedded in pkg/mkimage-raw-efi/make-raw:
+# select the GPT partition with the highest gptprio priority among the ones
+# marked successful (IMGA/IMGB) and chainload the GRUB from it.
+sed -e "s#@PATH_TO_GRUB@#$grub_efi#" > "$WORK/efifs/EFI/BOOT/grub.cfg" <<'EOF'
+# this finds the next available bootable partition in GPT, with the highest priority
+# and sets the value of the device it is on to $dev, and the uuid of the partition to $uuid
+#
+# to understand how this works, see pkg/grub/patches/0000-core-os-merge.patch
+gptprio.next -d dev -u uuid
+
+set root=$dev
+chainloader ($dev)/@PATH_TO_GRUB@
+boot
+reboot
+EOF
+if [ -d "$PARTS/boot" ]; then
+    cp -r "$PARTS/boot"/. "$WORK/efifs/"
+fi
+mkvfat "$OUT/efi.img" "$EFI_PART_KB" EVE "$WORK/efifs"
+
+### Reserved ESP-B: empty FAT32, like make-raw's do_efi_b()
+mkdir -p "$WORK/empty"
+mkvfat "$OUT/efi_b.img" "$EFI_PART_KB" EVE "$WORK/empty"
+
+### CONFIG: re-create config.img with 4KB sectors, keeping its contents
+mkdir -p "$WORK/config"
+if [ -n "$(mdir -i "$PARTS/config.img" -b ::/ 2>/dev/null)" ]; then
+    mcopy -i "$PARTS/config.img" -s -p -m ::/* "$WORK/config/"
+fi
+mkvfat "$OUT/config.img" "$CONF_PART_KB" EVE "$WORK/config"
+
+### IMGA: EVE rootfs (squashfs/ext4, sector size agnostic)
+cp "$PARTS/rootfs.img" "$OUT/rootfs.img"
+
+### dtb_a/dtb_b: firmware device tree (multi-DTB FIT), optional
+if [ -f "$DTB_BIN" ]; then
+    cp "$DTB_BIN" "$OUT/dtb.bin"
+else
+    echo "make-qcomflash: no dtb.bin provided, dtb_a/dtb_b will not be written"
+    sed -i 's/filename="dtb.bin"/filename=""/' "$OUT"/rawprogram[0-9].xml
+fi
+
+# Every file referenced by the rawprogram files must be in the bundle
+missing=$(sed -n 's/.*filename="\([^"]\+\)".*/\1/p' "$OUT"/rawprogram[0-9].xml | sort -u | \
+    while read -r f; do [ -f "$OUT/$f" ] || printf ' %s' "$f"; done)
+[ -z "$missing" ] || bail "files referenced by rawprogram*.xml are missing:$missing"
+
+echo "make-qcomflash: flash bundle ready in $OUT"
