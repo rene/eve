@@ -96,7 +96,46 @@ RUN find "${STAGE}" -type f \( -perm -u+x -o -name '*.so*' \) -exec ldd {} \; 2>
     find "${STAGE}" -type f \( -perm -u+x -o -name '*.so*' \) -exec sh -c 'strip "$1" 2>/dev/null || true' _ {} \; && \
     find "${STAGE}" \( -type f -o -type l \) | sort
 
+# Hexagon DSP libraries and FastRPC shells (meta-qcom:
+# hexagon-dsp-binaries_20260910.bb), installed to /usr/share/qcom where fastrpc
+# looks for them (conf.d/*.yaml map the device tree model to the board's
+# DSP_LIBRARY_PATH). They must match the DSP firmware, linux-firmware 20260910
+# in pkg/fw. Only the IQ-8275 EVK and IQ-9075 EVK, plus the reference boards
+# their directories link to, are installed. The meta-qcom patch makes the
+# IQ-8275 EVK CDSP use the QCS8300 libraries (submitted upstream as
+# linux-msm/hexagon-dsp-binaries#117), without it FastRPC can't start a CDSP
+# user PD on that board.
+# Separate stage: these are Hexagon (DSP) binaries, nothing to build, and they
+# must not go through the ldd/strip step of the build stage.
+FROM lfedge/eve-alpine:edcb4dbc2f973b82676381a236165ce924149f2d AS dsp-binaries
+ENV BUILD_PKGS="coreutils patch"
+RUN eve-alpine-deploy.sh
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+ENV DSP_BINARIES_VERSION=20260910
+ENV DSP_BINARIES_REV=bbb0e6b59143e052dbf26b371ee239ab4b0881b0
+ENV DSP_DIR=/dsp-out/usr/share/qcom
+ADD https://github.com/linux-msm/dsp-binaries.git#${DSP_BINARIES_REV} /dsp-binaries
+COPY patches/dsp-binaries/ /patches/dsp-binaries/
+WORKDIR /dsp-binaries
+RUN for p in /patches/dsp-binaries/*.patch; do patch -p1 < "$p"; done && \
+    awk -v re='^(sa8775p/Qualcomm/(SA8775P-RIDE|IQ9075-EVK)|qcs8300/Qualcomm/(QCS8300-RIDE|IQ8275-EVK))(/|$)' \
+        '($1 == "Install:" && $2 ~ re) || ($1 == "Link:" && $3 ~ re)' config.txt > /dsp-config.txt && \
+    cat /dsp-config.txt && \
+    ./scripts/install.sh /dsp-config.txt "${DSP_DIR}" && \
+    install -d "${DSP_DIR}/conf.d" && \
+    for b in iq8275-evk iq9075-evk qcs8300-ride sa8775p-ride; do \
+        install -m 0644 "conf.d/hexagon-dsp-binaries-qualcomm-$b.yaml" "${DSP_DIR}/conf.d/" ; \
+    done && \
+    install -m 0644 conf.d/schema.json "${DSP_DIR}/conf.d/" && \
+    install -m 0644 LICENSE.qcom LICENSE.qcom-2 WHENCE "${DSP_DIR}/"
+# No dangling symlinks (a Link: whose target wasn't installed)
+RUN dangling=$(find -L "${DSP_DIR}" -type l) && \
+    { [ -z "$dangling" ] || { echo "dangling symlinks: $dangling" >&2; exit 1; }; } && \
+    find "${DSP_DIR}" -maxdepth 5 \( -type d -o -type l \) | sort && \
+    du -shL "${DSP_DIR}"
+
 FROM scratch
 # hadolint ignore=DL3020
 ADD rootfs/ /
 COPY --from=build /qti-out/ /
+COPY --from=dsp-binaries /dsp-out/ /
