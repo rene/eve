@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 Zededa, Inc.
+# SPDX-License-Identifier: Apache-2.0
+"""Truncate the trailing zero blocks of an image file.
+
+Usage: trim-image <image> [block size]
+
+The file is truncated right after its last block holding non-zero data
+(rounded up to the block size, default 4096). Used for FAT images, whose free
+clusters don't need to be written to the device.
+"""
+
+import errno
+import os
+import sys
+
+CHUNK = 1 << 20
+
+
+def is_hole(fd, start, end):
+    """True if [start, end) is known to be a hole of a sparse file."""
+    if not hasattr(os, "SEEK_DATA"):
+        return False
+    try:
+        pos = os.lseek(fd, start, os.SEEK_DATA)
+    except OSError as err:
+        # ENXIO: no data at all from start to the end of the file
+        return err.errno == errno.ENXIO
+    return pos >= end
+
+
+def last_data_offset(path):
+    with open(path, "rb") as f:
+        fd = f.fileno()
+        end = os.fstat(fd).st_size
+        while end > 0:
+            start = max(0, end - CHUNK)
+            if not is_hole(fd, start, end):
+                f.seek(start)
+                buf = f.read(end - start).rstrip(b"\0")
+                if buf:
+                    return start + len(buf)
+            end = start
+    return 0
+
+
+def main():
+    path = sys.argv[1]
+    block = int(sys.argv[2]) if len(sys.argv) > 2 else 4096
+    last = last_data_offset(path)
+    os.truncate(path, (last + block - 1) // block * block)
+
+
+if __name__ == "__main__":
+    main()
