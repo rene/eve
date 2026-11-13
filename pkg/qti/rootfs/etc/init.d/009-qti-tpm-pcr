@@ -1,0 +1,110 @@
+#!/bin/sh
+# Copyright (c) 2026 Zededa, Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# TEMPORARY WORKAROUND for Qualcomm IQ platforms (IQ-8275, IQ-9075).
+#
+# The IQ boot firmware does not do measured boot yet: it never extends the
+# TPM, so every firmware PCR is left at its all-zero reset value. Since
+# "evetpm: refuse to seal the vault key against all-zero firmware PCRs",
+# vaultmgr refuses to seal the disk key while PCR 0 or 4 is all-zero, the
+# vault is never created and the node stays in maintenance mode
+# (VAULT_LOCKED_UP), so no app can run.
+#
+# Until the firmware measures the boot chain, extend PCR 0 and 4 with a fixed
+# placeholder digest, before pillar starts (this runs before 010-onboot). The
+# values are the same on every boot, so the sealed key unseals again after a
+# reboot.
+#
+# This provides NO tamper protection: the values are public and reproducible
+# by anything that runs before EVE. The vault key is effectively protected
+# only as much as on a node without a TPM. Remove this script as soon as the
+# firmware extends PCR 0 and 4 itself; the script already does nothing when
+# either PCR is non-zero.
+
+PCRS="0 4"
+TPM_WAIT_TIMEOUT=10
+ZERO=0000000000000000000000000000000000000000000000000000000000000000
+
+log() {
+    echo "009-qti-tpm-pcr: $*"
+    echo "009-qti-tpm-pcr: $*" > /dev/kmsg 2>/dev/null
+}
+
+# The SPI TPM may still be probing, give it a few seconds
+i=0
+while [ ! -e /sys/class/tpm/tpm0/pcr-sha256/0 ] && [ "$i" -lt "$TPM_WAIT_TIMEOUT" ]; do
+    sleep 1
+    i=$((i + 1))
+done
+if [ ! -e /sys/class/tpm/tpm0/pcr-sha256/0 ]; then
+    log "no TPM 2.0 with a SHA-256 bank, nothing to do"
+    exit 0
+fi
+
+if [ -c /dev/tpmrm0 ]; then
+    TPM_DEV=/dev/tpmrm0
+else
+    TPM_DEV=/dev/tpm0
+fi
+
+pcr_value() {
+    tr 'A-F' 'a-f' < "/sys/class/tpm/tpm0/pcr-sha256/$1"
+}
+
+# Only act when the firmware left all of them unextended: if it measured any
+# of them, it does measured boot and this workaround must not interfere.
+for pcr in $PCRS; do
+    if [ "$(pcr_value "$pcr")" != "$ZERO" ]; then
+        log "PCR $pcr is not all-zero (firmware measured boot?), not touching the TPM"
+        exit 0
+    fi
+done
+
+# hex string -> printf escapes ("0a1b" -> "\x0a\x1b")
+hex2esc() {
+    printf '%s' "$1" | sed 's/../\\x&/g'
+}
+
+# pcr_extend <pcr> <sha256 hex digest>
+# Send TPM2_PCR_Extend (SHA-256 bank only) with an empty password session.
+pcr_extend() {
+    idx=$(hex2esc "$(printf '%08x' "$1")")
+    dig=$(hex2esc "$2")
+    # header: tag ST_SESSIONS, size 65, TPM_CC_PCR_Extend
+    # handle: PCR index
+    # auth:   size 9, TPM_RS_PW, empty nonce, attributes 0, empty hmac
+    # digests: count 1, TPM_ALG_SHA256, 32 bytes
+    #
+    # The TPM driver needs the whole command in a single write(). printf
+    # flushes on every newline byte the digest may contain, so stage the
+    # command in a file and let dd write it in one go.
+    cmd=$(mktemp) || return 1
+    # shellcheck disable=SC2059
+    printf "\x80\x02\x00\x00\x00\x41\x00\x00\x01\x82${idx}\x00\x00\x00\x09\x40\x00\x00\x09\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x0b${dig}" > "$cmd"
+    if [ "$(wc -c < "$cmd")" -ne 65 ]; then
+        log "internal error: TPM2_PCR_Extend command for PCR $1 is not 65 bytes"
+        rm -f "$cmd"
+        return 1
+    fi
+    exec 3<>"$TPM_DEV" || { rm -f "$cmd"; return 1; }
+    dd if="$cmd" bs=4096 count=1 >&3 2>/dev/null
+    rsp=$(dd bs=4096 count=1 <&3 2>/dev/null | od -An -tx1 | tr -d ' \n')
+    exec 3>&-
+    rm -f "$cmd"
+    # response header: tag(2) size(4) responseCode(4)
+    rc=$(printf '%s' "$rsp" | cut -c13-20)
+    if [ "$rc" != "00000000" ]; then
+        log "TPM2_PCR_Extend of PCR $1 failed, response: ${rsp:-none}"
+        return 1
+    fi
+}
+
+for pcr in $PCRS; do
+    digest=$(printf 'EVE qcom-iq placeholder: firmware did not measure PCR %s' "$pcr" | sha256sum | cut -d' ' -f1)
+    if pcr_extend "$pcr" "$digest" && [ "$(pcr_value "$pcr")" != "$ZERO" ]; then
+        log "WARNING: firmware does not do measured boot, extended PCR $pcr with a fixed placeholder ($(pcr_value "$pcr"))"
+    else
+        log "could not extend PCR $pcr, the vault will stay locked"
+    fi
+done
