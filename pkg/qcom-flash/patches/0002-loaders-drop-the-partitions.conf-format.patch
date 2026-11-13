@@ -1,0 +1,1642 @@
+From 88cc527a16246bcbf9cd5b0c2b0cba06abab2527 Mon Sep 17 00:00:00 2001
+From: Igor Opaniuk <igor.opaniuk@oss.qualcomm.com>
+Date: Wed, 25 Nov 2026 10:03:37 +0100
+Subject: [PATCH 2/4] loaders: drop the partitions.conf format
+
+No partitions.conf is left in the tree, so remove the .conf loader. A
+.conf input now fails with a hint to describe the layout in YAML, and
+gen_udev_rules no longer scans for .conf files.
+
+The size grammar moves into the YAML loader with its tests. Tests that
+compared YAML against .conf now pin the expected values directly.
+
+Signed-off-by: Igor Opaniuk <igor.opaniuk@oss.qualcomm.com>
+---
+ CONTRIBUTING.md                      |   5 +-
+ README.md                            |   5 +-
+ qcom_ptool/gen_partition.py          |   8 +-
+ qcom_ptool/gen_udev_rules.py         |  11 +-
+ qcom_ptool/loaders/__init__.py       |  23 +-
+ qcom_ptool/loaders/conf.py           | 245 --------------
+ qcom_ptool/loaders/yaml.py           |  49 ++-
+ qcom_ptool/spec.py                   |  16 +-
+ tests/unit/data/glymur-crd-nvme.conf |   9 -
+ tests/unit/data/glymur-crd-nvme.yaml |  21 --
+ tests/unit/test_cli_board.py         |   2 +-
+ tests/unit/test_gen_partition.py     |  69 ++--
+ tests/unit/test_gen_udev_rules.py    |  29 +-
+ tests/unit/test_loaders_conf.py      | 467 ---------------------------
+ tests/unit/test_loaders_yaml.py      | 241 +++++++-------
+ 15 files changed, 222 insertions(+), 978 deletions(-)
+ delete mode 100644 qcom_ptool/loaders/conf.py
+ delete mode 100644 tests/unit/data/glymur-crd-nvme.conf
+ delete mode 100644 tests/unit/data/glymur-crd-nvme.yaml
+ delete mode 100644 tests/unit/test_loaders_conf.py
+
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index f49d8ae..ff21ea7 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -27,10 +27,9 @@ Here are a few things you can do that will increase the likelihood of your pull
+ 
+ - Follow the existing style where possible.
+ - Write tests.
+-- Keep the partition source formats in sync: when adding an option to
+-  the legacy `.conf` loader, add the matching typed field to the YAML
++- When adding a partition option, add its typed field to the YAML
+   schemas (`qcom_ptool/schema/`) and the YAML loader in the same pull
+-  request, with a test pinning that both formats load identically.
++  request, with a test.
+ - Keep your change as focused as possible.
+   If you want to make multiple independent changes, please consider submitting them as separate pull requests.
+ - Write a [good commit message](http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html).
+diff --git a/README.md b/README.md
+index 13b3296..7bd52e2 100644
+--- a/README.md
++++ b/README.md
+@@ -107,9 +107,8 @@ qcom-ptool build -I <qcom-ptool>/platforms/flavors -o out/ -b my-board.yaml
+ 
+ ## udev rules
+ 
+-By default, the generator scans all `platforms/*.yaml` platforms (and any
+-remaining `platforms/*/*/partitions.conf` files). Repeatable `-i` options
+-can select specific layouts, self-contained boards included. It skips known filesystem
++By default, the generator scans all `platforms/*.yaml` platforms. Repeatable
++`-i` options can select specific layouts, self-contained boards included. It skips known filesystem
+ partition names and emits exact `PARTNAME` rules for the others. Unknown names
+ retain normal blkid probing. Matched partitions are marked with
+ `QCOM_RAW_PARTITION=1` so later udev rules can reuse the generated
+diff --git a/qcom_ptool/gen_partition.py b/qcom_ptool/gen_partition.py
+index 723991d..7b817c1 100644
+--- a/qcom_ptool/gen_partition.py
++++ b/qcom_ptool/gen_partition.py
+@@ -34,6 +34,7 @@ import xml.etree.ElementTree as ET
+ from typing import NoReturn
+ from xml.dom import minidom
+ 
++from qcom_ptool.board import config_to_specs, resolve, resolve_platform
+ from qcom_ptool.loaders import load as load_spec
+ from qcom_ptool.spec import DiskParams, PartitionsByLun
+ 
+@@ -41,7 +42,7 @@ from qcom_ptool.spec import DiskParams, PartitionsByLun
+ def usage() -> NoReturn:
+     print(
+         "\n\tUsage:\n"
+-        "\t  %s -i <input> -o <output> "
++        "\t  %s -i <partitions.yaml> -o <output> "
+         "[-m name1=image1,name2=image2,...]\n"
+         "\t  %s --platform <platform.yaml> "
+         "[-C <outdir> | -o <out1> -o <out2> ...]\n"
+@@ -152,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
+     sources = [x is not None for x in (input_file, platform_file, board_file)]
+     if sum(sources) != 1:
+         print(
+-            "Error: pass exactly one of -i <input>, --platform <platform.yaml> "
++            "Error: pass exactly one of -i <partitions.yaml>, --platform <platform.yaml> "
+             "or --board <board.yaml>"
+         )
+         usage()
+@@ -194,9 +195,6 @@ def _run_platform(
+     outdir: str | None,
+     image_map: dict[str, str],
+ ) -> int:
+-    # Late import so the -i path never pulls in PyYAML / jsonschema.
+-    from qcom_ptool.board import config_to_specs, resolve, resolve_platform
+-
+     try:
+         if platform_file is not None:
+             configs = resolve_platform(platform_file)
+diff --git a/qcom_ptool/gen_udev_rules.py b/qcom_ptool/gen_udev_rules.py
+index 7ae64d9..85a6d4e 100644
+--- a/qcom_ptool/gen_udev_rules.py
++++ b/qcom_ptool/gen_udev_rules.py
+@@ -22,7 +22,6 @@ FILESYSTEM_NAMES_FILE = DATA_DIR / "filesystem-partition-names.list"
+ TEMPLATE_FILE = DATA_DIR / "55-qcom-raw-partitions-noblkid.rules.in"
+ RULES_PLACEHOLDER = "@QCOM_RAW_PARTITION_RULES@"
+ NAME_RE = re.compile(r"[A-Za-z0-9_.+-]+")
+-CONF_LAYOUT_GLOB = "platforms/*/*/partitions.conf"
+ PLATFORM_LAYOUT_GLOB = "platforms/*.yaml"
+ 
+ 
+@@ -65,8 +64,7 @@ def layout_specs(path: Path) -> list[LoadedSpec]:
+ 
+     A YAML platform file resolves to one spec per flashed storage of each
+     configuration, a self-contained YAML board to one per flashed storage;
+-    everything else (.conf, flat partitions YAML) is a single spec via the
+-    format loaders.
++    a flat partitions YAML is a single spec via the format loaders.
+     """
+     if path.suffix.lower() in (".yaml", ".yml"):
+         document = _read_yaml_mapping(path)
+@@ -104,8 +102,7 @@ def discover_inputs(inputs: list[Path] | None) -> list[Path]:
+     if inputs:
+         return inputs
+ 
+-    discovered = sorted(Path.cwd().glob(CONF_LAYOUT_GLOB))
+-    discovered += sorted(Path.cwd().glob(PLATFORM_LAYOUT_GLOB))
++    discovered = sorted(Path.cwd().glob(PLATFORM_LAYOUT_GLOB))
+     if not discovered:
+         raise ValueError(
+             "no partition layouts found; run from the qcom-ptool repository "
+@@ -138,8 +135,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+         "--input",
+         action="append",
+         type=Path,
+-        help="partition layout (.conf, platform or self-contained board .yaml) to scan; may be repeated "
+-        "(defaults to platforms/*/*/partitions.conf and platforms/*.yaml)",
++        help="partition layout (platform, self-contained board or partitions .yaml) to scan; "
++        "may be repeated (defaults to platforms/*.yaml)",
+     )
+     parser.add_argument("-o", "--output", required=True, type=Path)
+     return parser.parse_args(argv)
+diff --git a/qcom_ptool/loaders/__init__.py b/qcom_ptool/loaders/__init__.py
+index a372170..8b0c8f9 100644
+--- a/qcom_ptool/loaders/__init__.py
++++ b/qcom_ptool/loaders/__init__.py
+@@ -6,8 +6,8 @@ Source-format loaders for partition specs.
+ Each loader exposes ``load(path, image_map=None) -> LoadedSpec`` so the rest
+ of the package never has to care which on-disk format produced the
+ :mod:`qcom_ptool.spec` representation it operates on. Adding a new format
+-(e.g. YAML) means dropping a new module here and registering its suffix in
+-the dispatcher below — no other module needs to change.
++means dropping a new module here and registering its suffix in the
++dispatcher below.
+ """
+ 
+ from __future__ import annotations
+@@ -25,21 +25,18 @@ class UnsupportedFormatError(ValueError):
+ def load(path: str, image_map: Mapping[str, str] | None = None) -> LoadedSpec:
+     """Dispatch to the appropriate loader based on file extension.
+ 
+-    ``image_map`` overrides the ``--filename`` (or equivalent) for partitions
+-    whose name appears as a key. It's applied uniformly by every loader so
+-    the CLI ``-m`` flag works the same regardless of source format.
++    ``image_map`` overrides the ``filename`` of partitions whose name appears
++    as a key. It's applied uniformly by every loader so the CLI ``-m`` flag
++    works the same regardless of source format.
+     """
+     suffix = os.path.splitext(path)[1].lower()
+-    if suffix in ("", ".conf"):
+-        # Late import: keeps this dispatcher dependency-free until a format
+-        # is actually requested, which matters once optional formats (YAML)
+-        # land with their own third-party imports.
+-        from qcom_ptool.loaders import conf
+-
+-        return conf.load(path, image_map=image_map)
+     if suffix in (".yaml", ".yml"):
+-        # Late import so the .conf path never pays for PyYAML / jsonschema.
+         from qcom_ptool.loaders import yaml as yaml_loader
+ 
+         return yaml_loader.load(path, image_map=image_map)
++    if suffix in ("", ".conf"):
++        raise UnsupportedFormatError(
++            f"{path}: the partitions.conf format is no longer supported; "
++            "describe the layout in YAML"
++        )
+     raise UnsupportedFormatError(f"No loader registered for suffix {suffix!r}")
+diff --git a/qcom_ptool/loaders/conf.py b/qcom_ptool/loaders/conf.py
+deleted file mode 100644
+index 4f21e96..0000000
+--- a/qcom_ptool/loaders/conf.py
++++ /dev/null
+@@ -1,245 +0,0 @@
+-# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+-# SPDX-License-Identifier: BSD-3-Clause
+-"""
+-Loader for the legacy ``--disk`` / ``--partition`` line-format files under
+-``platforms/``.
+-
+-A ``.conf`` file is an unstructured stream of comment lines, blank lines,
+-exactly one ``--disk`` line, and any number of ``--partition`` lines. Each
+-significant line is itself a getopt-style option list. This module parses
+-both layers and returns a :class:`qcom_ptool.spec.LoadedSpec`.
+-
+-The parsing helpers are kept individually addressable so the unit tests
+-under ``tests/unit/`` can characterise each layer in isolation.
+-"""
+-
+-from __future__ import annotations
+-
+-import getopt
+-import re
+-from collections.abc import Mapping
+-
+-from qcom_ptool.spec import (
+-    DISK_PARAMS_DEFAULTS,
+-    PARTITION_ENTRY_DEFAULTS,
+-    DiskParams,
+-    LoadedSpec,
+-    PartitionEntry,
+-    PartitionsByLun,
+-)
+-
+-
+-class ConfParseError(ValueError):
+-    """Raised when a ``.conf`` file cannot be parsed."""
+-
+-
+-# ---------------------------------------------------------------------------
+-# Size string parsing
+-# ---------------------------------------------------------------------------
+-
+-
+-def partition_size_in_kb(size: str) -> int:
+-    """Convert a size string ("1024", "1KB", "2MB", "1GB") to KB.
+-
+-    Bare integers are interpreted as bytes and divided by 1024. Strings with a
+-    K/M/G suffix (any case, with optional 'B') return the kilobyte equivalent.
+-    The accepted grammar matches the YAML schema (``^[0-9]+([KkMmGg][Bb]?)?$``);
+-    anything else, including decimals such as "1.5MB", raises ``ValueError``
+-    instead of being silently misread.
+-    """
+-    m = re.fullmatch(r"([0-9]+)(?:([KkMmGg])[Bb]?)?", size)
+-    if not m:
+-        raise ValueError("Unrecognized size format: '%s'" % size)
+-    number, unit = int(m.group(1)), (m.group(2) or "").upper()
+-    if not unit:
+-        return number // 1024
+-    return number * {"K": 1, "M": 1024, "G": 1024 * 1024}[unit]
+-
+-# ---------------------------------------------------------------------------
+-# Option-list -> normalised dict
+-# ---------------------------------------------------------------------------
+-
+-
+-def disk_options(argv: list[tuple[str, str]]) -> DiskParams:
+-    """Translate parsed ``--disk`` options into the canonical disk dict."""
+-    disk = DISK_PARAMS_DEFAULTS.copy()
+-    for opt, arg in argv:
+-        if opt == "--type":
+-            disk["type"] = arg
+-        elif opt == "--size":
+-            disk["size"] = arg
+-        elif opt == "--sector-size-in-bytes":
+-            disk["SECTOR_SIZE_IN_BYTES"] = arg
+-        elif opt == "--write-protect-boundary":
+-            disk["WRITE_PROTECT_BOUNDARY_IN_KB"] = arg
+-        elif opt == "--grow-last-partition":
+-            disk["GROW_LAST_PARTITION_TO_FILL_DISK"] = "true"
+-        elif opt == "--align-partitions":
+-            disk["ALIGN_PARTITIONS_TO_PERFORMANCE_BOUNDARY"] = "true"
+-            disk["PERFORMANCE_BOUNDARY_IN_KB"] = str(int(arg) // 1024)
+-    return disk
+-
+-
+-def to_bool(arg: str) -> str:
+-    return "true" if arg.strip().lower() in ("1", "y", "yes", "true") else "false"
+-
+-
+-def partition_options(
+-    argv: list[tuple[str, str]],
+-    image_map: Mapping[str, str] | None = None,
+-) -> tuple[str, PartitionEntry]:
+-    """Translate parsed ``--partition`` options into ``(phys_part, entry)``.
+-
+-    ``image_map`` (if provided) overrides the entry's ``filename`` when the
+-    partition name matches a key. The override is applied after all options
+-    have been processed, so it always wins over an explicit ``--filename``.
+-    """
+-    if image_map is None:
+-        image_map = {}
+-    entry: PartitionEntry = PARTITION_ENTRY_DEFAULTS.copy()
+-    phys_part: str = "0"
+-    # Intentional: --attributes first so a named flag always wins.
+-    for opt, arg in argv:
+-        if opt == "--attributes":
+-            attribute_bits = int(arg, 16)
+-            entry["bootable"] = "true" if attribute_bits & (1 << 2) else "false"
+-            entry["readonly"] = "true" if attribute_bits & (1 << 60) else "false"
+-    for opt, arg in argv:
+-        if opt in ("--lun", "--phys-part"):
+-            phys_part = arg
+-        elif opt == "--name":
+-            entry["label"] = arg
+-        elif opt == "--size":
+-            entry["size_in_kb"] = str(partition_size_in_kb(arg))
+-        elif opt == "--type-guid":
+-            entry["type"] = arg
+-        elif opt == "--bootable":
+-            entry["bootable"] = to_bool(arg)
+-        elif opt == "--readonly":
+-            entry["readonly"] = to_bool(arg)
+-        elif opt == "--priority":
+-            entry["priority"] = str(int(arg) & 0x03)
+-        elif opt == "--tries-remaining":
+-            entry["triesremaining"] = str(int(arg) & 0x07)
+-        elif opt == "--active":
+-            entry["active"] = to_bool(arg)
+-        elif opt == "--successful":
+-            entry["successful"] = to_bool(arg)
+-        elif opt == "--unbootable":
+-            entry["unbootable"] = to_bool(arg)
+-        elif opt == "--filename":
+-            entry["filename"] = arg
+-        elif opt == "--sparse":
+-            entry["sparse"] = to_bool(arg)
+-        elif opt == "--uniqueguid":
+-            entry["uniqueguid"] = arg
+-    if entry["label"] in image_map:
+-        entry["filename"] = image_map[entry["label"]]
+-    return phys_part, entry
+-
+-
+-# ---------------------------------------------------------------------------
+-# Line-level parsing
+-# ---------------------------------------------------------------------------
+-
+-
+-_DISK_LONG_OPTS = [
+-    "type=",
+-    "size=",
+-    "sector-size-in-bytes=",
+-    "write-protect-boundary=",
+-    "grow-last-partition",
+-    "align-partitions=",
+-]
+-
+-_PARTITION_LONG_OPTS = [
+-    "lun=",
+-    "phys-part=",
+-    "name=",
+-    "size=",
+-    "type-guid=",
+-    "filename=",
+-    "attributes=",
+-    "bootable=",
+-    "readonly=",
+-    "priority=",
+-    "tries-remaining=",
+-    "active=",
+-    "successful=",
+-    "unbootable=",
+-    "sparse=",
+-    "uniqueguid=",
+-]
+-
+-
+-def parse_disk_line(line: str) -> DiskParams | None:
+-    """Parse a single ``--disk ...`` line; return None if the line isn't one."""
+-    opts_list = line.split(" ")
+-    if not opts_list or opts_list[0] != "--disk":
+-        return None
+-    options, _rem = getopt.gnu_getopt(opts_list[1:], "", _DISK_LONG_OPTS)
+-    return disk_options(options)
+-
+-
+-def parse_partition_lines(
+-    lines: list[str],
+-    image_map: Mapping[str, str] | None = None,
+-) -> PartitionsByLun:
+-    """Parse a list of ``--partition ...`` lines, grouped by LUN/phys-part."""
+-    if image_map is None:
+-        image_map = {}
+-    partitions: PartitionsByLun = {}
+-    for line in lines:
+-        opts_list = line.split(" ")
+-        if not opts_list or opts_list[0] != "--partition":
+-            continue
+-        options, _rem = getopt.gnu_getopt(opts_list[1:], "", _PARTITION_LONG_OPTS)
+-        phys_part, entry = partition_options(options, image_map)
+-        partitions.setdefault(phys_part, []).append(entry)
+-    return partitions
+-
+-
+-# ---------------------------------------------------------------------------
+-# File-level parsing
+-# ---------------------------------------------------------------------------
+-
+-
+-def read_conf(path: str) -> tuple[str, list[str]]:
+-    """Read ``path`` and return ``(disk_line, [partition_lines])``.
+-
+-    Comments (``#``-prefixed) and blank lines are skipped. Multiple ``--disk``
+-    lines are an error. Lines that aren't ``--disk`` or ``--partition`` are
+-    printed as "Ignoring ..." for parity with the original behaviour.
+-    """
+-    disk_line: str | None = None
+-    partition_lines: list[str] = []
+-    with open(path) as f:
+-        for raw in f:
+-            if re.search(r"^\s*#", raw) or re.search(r"^\s*$", raw):
+-                continue
+-            line = raw.strip()
+-            if line.startswith("--disk"):
+-                if disk_line is not None:
+-                    raise ConfParseError(
+-                        "%s contains more than one --disk entries:\n%s\n%s"
+-                        % (path, disk_line, line)
+-                    )
+-                disk_line = line
+-            elif line.startswith("--partition"):
+-                partition_lines.append(line)
+-            else:
+-                print("Ignoring %s" % line)
+-    if disk_line is None:
+-        raise ConfParseError("%s contains no --disk entry" % path)
+-    return disk_line, partition_lines
+-
+-
+-def load(path: str, image_map: Mapping[str, str] | None = None) -> LoadedSpec:
+-    """Public entry point: read ``path`` and return a normalised ``LoadedSpec``."""
+-    disk_line, partition_lines = read_conf(path)
+-    disk = parse_disk_line(disk_line)
+-    if disk is None:
+-        # Should be unreachable: read_conf guarantees disk_line starts with --disk.
+-        raise ConfParseError("%s: failed to parse --disk line" % path)
+-    partitions = parse_partition_lines(partition_lines, image_map)
+-    return {"disk": disk, "partitions": partitions}
+diff --git a/qcom_ptool/loaders/yaml.py b/qcom_ptool/loaders/yaml.py
+index 816cc08..cfa39b5 100644
+--- a/qcom_ptool/loaders/yaml.py
++++ b/qcom_ptool/loaders/yaml.py
+@@ -5,19 +5,17 @@ Loader for the structured YAML partition source (single storage).
+ 
+ A YAML document describes one ``disk`` mapping and a ``partitions`` list; this
+ module validates it against ``qcom_ptool/schema/partitions.schema.json`` and
+-normalises it into the exact same :class:`qcom_ptool.spec.LoadedSpec` the
+-``.conf`` loader produces, so both formats emit byte-identical XML.
+-
+-Normalisation mirrors ``loaders/conf.py`` field for field: the disk dict is
+-built by copying ``DISK_PARAMS_DEFAULTS`` and each partition by copying
+-``PARTITION_ENTRY_DEFAULTS``, so key order (and therefore XML attribute order)
+-matches the legacy loader. ``partition_size_in_kb`` and the attribute-bit
+-decoding are reused / replicated identically.
++normalises it into a :class:`qcom_ptool.spec.LoadedSpec`.
++
++The disk dict is built by copying ``DISK_PARAMS_DEFAULTS`` and each partition
++by copying ``PARTITION_ENTRY_DEFAULTS``, so key order (and therefore XML
++attribute order) is fixed by those constants.
+ """
+ 
+ from __future__ import annotations
+ 
+ import json
++import re
+ from collections.abc import Mapping
+ from importlib import resources
+ from typing import Any
+@@ -25,7 +23,6 @@ from typing import Any
+ import jsonschema
+ import yaml  # type: ignore[import-untyped]
+ 
+-from qcom_ptool.loaders.conf import partition_size_in_kb
+ from qcom_ptool.spec import (
+     DISK_PARAMS_DEFAULTS,
+     PARTITION_ENTRY_DEFAULTS,
+@@ -43,10 +40,28 @@ class YamlParseError(ValueError):
+     """Raised when a YAML partition source is malformed or fails validation."""
+ 
+ 
++def partition_size_in_kb(size: str) -> int:
++    """Convert a size string ("1024", "1KB", "2MB", "1GB") to KB.
++
++    Bare integers are interpreted as bytes and divided by 1024. Strings with a
++    K/M/G suffix (any case, with optional 'B') return the kilobyte equivalent.
++    The accepted grammar matches the YAML schema (``^[0-9]+([KkMmGg][Bb]?)?$``);
++    anything else, including decimals such as "1.5MB", raises ``ValueError``
++    instead of being silently misread.
++    """
++    m = re.fullmatch(r"([0-9]+)(?:([KkMmGg])[Bb]?)?", size)
++    if not m:
++        raise ValueError("Unrecognized size format: '%s'" % size)
++    number, unit = int(m.group(1)), (m.group(2) or "").upper()
++    if not unit:
++        return number // 1024
++    return number * {"K": 1, "M": 1024, "G": 1024 * 1024}[unit]
++
++
+ def _bool_str(value: Any) -> str:
+-    """Render a YAML scalar as the lowercase "true"/"false" the .conf loader
+-    stores. ``str(True)`` would yield "True", which the emitter would then
+-    write verbatim and break parity, so booleans are normalised explicitly."""
++    """Render a YAML scalar as the lowercase "true"/"false" ptool expects.
++    ``str(True)`` would yield "True", which the emitter would then write
++    verbatim, so booleans are normalised explicitly."""
+     if isinstance(value, bool):
+         return "true" if value else "false"
+     return str(value)
+@@ -65,8 +80,7 @@ def _disk_from_node(node: Mapping[str, Any]) -> DiskParams:
+     """Normalise the ``disk`` mapping into the canonical disk dict.
+ 
+     Starts from ``DISK_PARAMS_DEFAULTS`` and overrides only the keys present,
+-    exactly like ``conf.disk_options``, so unset fields keep their defaults and
+-    the key order is identical.
++    so unset fields keep their defaults and the key order is fixed.
+     """
+     disk = DISK_PARAMS_DEFAULTS.copy()
+     disk["type"] = str(node["type"])
+@@ -89,8 +103,9 @@ def _partition_from_node(
+ ) -> tuple[str, PartitionEntry]:
+     """Normalise one partition mapping into ``(phys_part, entry)``.
+ 
+-    Mirrors ``conf.partition_options``: same defaults, same attribute-bit
+-    decoding, and the image-map override applied last so it always wins.
++    Starts from ``PARTITION_ENTRY_DEFAULTS``, decodes the attribute bits, lets
++    named fields override them, and applies the image map last so it always
++    wins.
+     """
+     entry: PartitionEntry = PARTITION_ENTRY_DEFAULTS.copy()
+     phys_part = "0"
+@@ -105,7 +120,7 @@ def _partition_from_node(
+         attribute_bits = int(str(node["attributes"]), 16)
+         entry["bootable"] = "true" if attribute_bits & (1 << 2) else "false"
+         entry["readonly"] = "true" if attribute_bits & (1 << 60) else "false"
+-    # Named fields mirror the .conf options; applied after attributes so they win.
++    # Named fields are applied after attributes so they win.
+     if "bootable" in node:
+         entry["bootable"] = _bool_str(node["bootable"])
+     if "readonly" in node:
+diff --git a/qcom_ptool/spec.py b/qcom_ptool/spec.py
+index f61d9f6..73b1a4f 100644
+--- a/qcom_ptool/spec.py
++++ b/qcom_ptool/spec.py
+@@ -3,9 +3,8 @@
+ """
+ Internal representation shared by all input loaders.
+ 
+-Every loader (``loaders/conf.py`` today, ``loaders/yaml.py`` tomorrow) must
+-return a ``LoadedSpec`` so the rest of ``gen_partition.py`` is independent
+-of the source format.
++Every loader (``loaders/yaml.py``) returns a ``LoadedSpec`` so the rest of
++``gen_partition.py`` is independent of the source format.
+ 
+ ``DiskParams`` and ``PartitionEntry`` are type aliases for ``dict[str, str]``
+ rather than ``TypedDict``s; the XML emitter passes the dicts straight to
+@@ -21,25 +20,24 @@ from __future__ import annotations
+ from collections import OrderedDict
+ from typing import TypedDict
+ 
+-# Parsed ``--disk`` line normalised into the keys ``ptool`` consumes.
++# Disk parameters normalised into the keys ``ptool`` consumes.
+ # Expected keys: type, size, SECTOR_SIZE_IN_BYTES, WRITE_PROTECT_BOUNDARY_IN_KB,
+ # GROW_LAST_PARTITION_TO_FILL_DISK, ALIGN_PARTITIONS_TO_PERFORMANCE_BOUNDARY,
+ # PERFORMANCE_BOUNDARY_IN_KB. See DISK_PARAMS_DEFAULTS for the canonical set.
+ DiskParams = dict[str, str]
+ 
+-# Parsed ``--partition`` line normalised for the XML attribute set.
++# One partition normalised for the XML attribute set.
+ # Expected keys: label, size_in_kb, type, bootable, readonly, filename, sparse,
+ # active, successful, unbootable.
+ # See PARTITION_ENTRY_DEFAULTS for the canonical set.
+ PartitionEntry = dict[str, str]
+ 
+-# Mapping of physical partition / LUN id (kept as a string for backward
+-# compatibility with the existing line parser) to its partition entries.
++# Mapping of physical partition / LUN id (kept as a string, as emitted in
++# the XML) to its partition entries.
+ PartitionsByLun = dict[str, list[PartitionEntry]]
+ 
+ 
+-# Defaults used by the conf loader (and any future loader that wants to
+-# inherit the same baseline). Kept as module-level constants so loaders can
++# Defaults every loader starts from. Kept as module-level constants so loaders can
+ # ``.copy()`` from them rather than rebuilding the structure each call.
+ # ``OrderedDict`` is preserved here because the XML emitter relies on its
+ # iteration order to produce stable output across Python versions.
+diff --git a/tests/unit/data/glymur-crd-nvme.conf b/tests/unit/data/glymur-crd-nvme.conf
+deleted file mode 100644
+index a94efa7..0000000
+--- a/tests/unit/data/glymur-crd-nvme.conf
++++ /dev/null
+@@ -1,9 +0,0 @@
+-# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+-# SPDX-License-Identifier: BSD-3-Clause
+-#
+-# Legacy .conf equivalent of glymur-crd-nvme.yaml, kept as a self-contained
+-# fixture so the YAML/.conf parity tests do not depend on any board under
+-# platforms/ (which migrate to YAML over time).
+---disk --type=nvme --size=68719476736 --write-protect-boundary=65536 --sector-size-in-bytes=512 --grow-last-partition
+---partition --name=efi --size=524288KB --type-guid=C12A7328-F81F-11D2-BA4B-00A0C93EC93B --filename=efi.bin
+---partition --name=rootfs --size=33554432KB --type-guid=B921B045-1DF0-41C3-AF44-4C6F280D3FAE --filename=rootfs.img
+diff --git a/tests/unit/data/glymur-crd-nvme.yaml b/tests/unit/data/glymur-crd-nvme.yaml
+deleted file mode 100644
+index a8d3004..0000000
+--- a/tests/unit/data/glymur-crd-nvme.yaml
++++ /dev/null
+@@ -1,21 +0,0 @@
+-# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+-# SPDX-License-Identifier: BSD-3-Clause
+-#
+-# Single-storage YAML equivalent of platforms/glymur-crd/nvme/partitions.conf.
+-# Used by tests/unit/test_loaders_yaml.py to assert byte-for-byte parity
+-# between the .conf and .yaml loaders.
+-disk:
+-  type: nvme
+-  size: 68719476736
+-  write-protect-boundary: 65536
+-  sector-size: 512
+-  grow-last-partition: true
+-partitions:
+-  - name: efi
+-    size: "524288KB"
+-    type-guid: "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+-    filename: efi.bin
+-  - name: rootfs
+-    size: "33554432KB"
+-    type-guid: "B921B045-1DF0-41C3-AF44-4C6F280D3FAE"
+-    filename: rootfs.img
+diff --git a/tests/unit/test_cli_board.py b/tests/unit/test_cli_board.py
+index df11e7e..df3a49f 100644
+--- a/tests/unit/test_cli_board.py
++++ b/tests/unit/test_cli_board.py
+@@ -117,7 +117,7 @@ def test_requires_exactly_one_source(tmp_path):
+     # both -i and --platform -> usage() exits.
+     with pytest.raises(SystemExit):
+         gen_partition.main(
+-            ["gen_partition", "-i", "x.conf", "--platform", root + "/demo.yaml", "-o", "out.xml"]
++            ["gen_partition", "-i", "x.yaml", "--platform", root + "/demo.yaml", "-o", "out.xml"]
+         )
+ 
+ 
+diff --git a/tests/unit/test_gen_partition.py b/tests/unit/test_gen_partition.py
+index 3f64b16..3a26fc5 100644
+--- a/tests/unit/test_gen_partition.py
++++ b/tests/unit/test_gen_partition.py
+@@ -9,28 +9,28 @@ import xml.etree.ElementTree as ET
+ 
+ import pytest
+ 
+-BASIC_CONF = """\
+-# comment lines and blank lines are ignored
+-
+---disk --type=emmc --size=16777216 --sector-size-in-bytes=512
+-
+---partition --name=cdt --size=2KB --type-guid=A19F205F-CCD8-4B6D-8F1E-2D9BC24CFFB1 --filename=cdt.bin
+---partition --name=boot --size=64MB --type-guid=20117F86-E985-4357-B9EE-374BC1D8487D --attributes=0x0000000000000004
+---partition --name=rootfs --size=1GB --type-guid=97D7B011-54DA-4835-B3C4-917AD6E73D74 --attributes=0x1000000000000000
++GUID = "00000000-0000-0000-0000-000000000001"
++DISK = "disk: {type: emmc, size: 16777216, sector-size: 512}\n"
++
++BASIC_YAML = DISK + """\
++partitions:
++  - {name: cdt, size: "2KB", type-guid: "A19F205F-CCD8-4B6D-8F1E-2D9BC24CFFB1", filename: cdt.bin}
++  - {name: boot, size: "64MB", type-guid: "20117F86-E985-4357-B9EE-374BC1D8487D", attributes: "0000000000000004"}
++  - {name: rootfs, size: "1GB", type-guid: "97D7B011-54DA-4835-B3C4-917AD6E73D74", attributes: "1000000000000000"}
+ """
+ 
+ 
+-def run_gen_partition(tmp_path, conf_text, extra_args=()):
+-    conf = tmp_path / "partitions.conf"
++def run_gen_partition(tmp_path, yaml_text, extra_args=()):
++    source = tmp_path / "partitions.yaml"
+     out = tmp_path / "partitions.xml"
+-    conf.write_text(conf_text, encoding="utf-8")
++    source.write_text(yaml_text, encoding="utf-8")
+     result = subprocess.run(
+         [
+             sys.executable,
+             "-m",
+             "qcom_ptool.gen_partition",
+             "-i",
+-            str(conf),
++            str(source),
+             "-o",
+             str(out),
+             *extra_args,
+@@ -45,7 +45,7 @@ def run_gen_partition(tmp_path, conf_text, extra_args=()):
+ @pytest.fixture(scope="module")
+ def basic_output(tmp_path_factory):
+     tmp_path = tmp_path_factory.mktemp("gen_partition")
+-    result, out = run_gen_partition(tmp_path, BASIC_CONF)
++    result, out = run_gen_partition(tmp_path, BASIC_YAML)
+     assert result.returncode == 0, result.stdout + result.stderr
+     return ET.parse(out).getroot()
+ 
+@@ -79,11 +79,8 @@ def test_size_suffix_parsing(basic_output, label, expected_kb):
+ 
+ 
+ def test_plain_size_is_interpreted_as_bytes(tmp_path):
+-    conf = """\
+---disk --type=emmc --size=16777216
+---partition --name=data --size=4096
+-"""
+-    result, out = run_gen_partition(tmp_path, conf)
++    source = DISK + 'partitions:\n  - {name: data, size: "4096", type-guid: "%s"}\n' % GUID
++    result, out = run_gen_partition(tmp_path, source)
+     assert result.returncode == 0, result.stdout + result.stderr
+     part = get_partitions(ET.parse(out).getroot())["data"]
+     assert part.get("size_in_kb") == "4"
+@@ -107,7 +104,7 @@ def test_filename_passthrough(basic_output):
+ 
+ def test_partition_image_map_overrides_filename(tmp_path):
+     result, out = run_gen_partition(
+-        tmp_path, BASIC_CONF, extra_args=["-m", "cdt=other.bin,boot=boot.img"]
++        tmp_path, BASIC_YAML, extra_args=["-m", "cdt=other.bin,boot=boot.img"]
+     )
+     assert result.returncode == 0, result.stdout + result.stderr
+     parts = get_partitions(ET.parse(out).getroot())
+@@ -117,12 +114,13 @@ def test_partition_image_map_overrides_filename(tmp_path):
+ 
+ 
+ def test_multiple_luns_sorted(tmp_path):
+-    conf = """\
+---disk --type=ufs --size=16777216
+---partition --lun=2 --name=late --size=1KB
+---partition --lun=0 --name=early --size=1KB
+-"""
+-    result, out = run_gen_partition(tmp_path, conf)
++    source = """\
++disk: {type: ufs, size: 16777216}
++partitions:
++  - {name: late, lun: 2, size: "1KB", type-guid: "%s"}
++  - {name: early, lun: 0, size: "1KB", type-guid: "%s"}
++""" % (GUID, GUID)
++    result, out = run_gen_partition(tmp_path, source)
+     assert result.returncode == 0, result.stdout + result.stderr
+     root = ET.parse(out).getroot()
+     luns = root.findall("physical_partition")
+@@ -132,11 +130,24 @@ def test_multiple_luns_sorted(tmp_path):
+     assert luns[1].find("partition").get("label") == "late"
+ 
+ 
+-def test_duplicate_disk_entry_fails(tmp_path):
+-    conf = "--disk --type=emmc --size=1\n--disk --type=emmc --size=2\n--partition --name=a --size=1KB\n"
+-    result, _ = run_gen_partition(tmp_path, conf)
++def test_invalid_source_fails(tmp_path):
++    source = DISK + 'partitions:\n  - {name: a, size: "1.5MB", type-guid: "%s"}\n' % GUID
++    result, _ = run_gen_partition(tmp_path, source)
++    assert result.returncode == 1
++    assert "schema validation failed" in result.stdout + result.stderr
++
++
++def test_conf_input_is_rejected(tmp_path):
++    source = tmp_path / "partitions.conf"
++    source.write_text("--disk --type=emmc --size=1\n", encoding="utf-8")
++    result = subprocess.run(
++        [sys.executable, "-m", "qcom_ptool.gen_partition", "-i", str(source), "-o", "x.xml"],
++        capture_output=True,
++        text=True,
++        timeout=10,
++    )
+     assert result.returncode == 1
+-    assert "more than one --disk" in result.stdout + result.stderr
++    assert "no longer supported" in result.stdout + result.stderr
+ 
+ 
+ def test_missing_arguments_shows_usage():
+diff --git a/tests/unit/test_gen_udev_rules.py b/tests/unit/test_gen_udev_rules.py
+index e8da28c..d3d2aff 100644
+--- a/tests/unit/test_gen_udev_rules.py
++++ b/tests/unit/test_gen_udev_rules.py
+@@ -72,16 +72,9 @@ def test_generate_rules_resolves_yaml_platforms(tmp_path: Path) -> None:
+     assert "last_parti" not in rules
+ 
+ 
+-def test_discovery_includes_conf_and_yaml_platforms(
++def test_discovery_includes_yaml_platforms(
+     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+ ) -> None:
+-    conf_dir = tmp_path / "platforms" / "legacy" / "ufs"
+-    conf_dir.mkdir(parents=True)
+-    (conf_dir / "partitions.conf").write_text(
+-        "--disk --type=ufs --size=1\n"
+-        "--partition --name=raw_conf --size=1KB --type-guid=1\n",
+-        encoding="utf-8",
+-    )
+     _write_platform(
+         tmp_path / "platforms",
+         "demo",
+@@ -96,25 +89,27 @@ def test_discovery_includes_conf_and_yaml_platforms(
+ 
+     rules = gen_udev_rules.generate_rules()
+ 
+-    assert 'ENV{PARTNAME}=="raw_conf"' in rules
+     assert 'ENV{PARTNAME}=="raw_board"' in rules
+ 
+ 
+ def test_generate_rules_merges_layouts_and_deduplicates(
+     tmp_path: Path,
+ ) -> None:
+-    first = tmp_path / "first.conf"
+-    second = tmp_path / "second.conf"
++    first = tmp_path / "first.yaml"
++    second = tmp_path / "second.yaml"
++    guid = '"00000000-0000-0000-0000-000000000001"'
+     first.write_text(
+-        "--disk --type=ufs --size=1\n"
+-        "--partition --name=raw_a --size=1KB --type-guid=1\n"
+-        "--partition --name=rootfs --size=1KB --type-guid=2\n",
++        "disk: {type: ufs, size: 1}\n"
++        "partitions:\n"
++        '  - {name: raw_a, size: "1KB", type-guid: %s}\n'
++        '  - {name: rootfs, size: "1KB", type-guid: %s}\n' % (guid, guid),
+         encoding="utf-8",
+     )
+     second.write_text(
+-        "--disk --type=ufs --size=1\n"
+-        "--partition --name=raw_a --size=1KB --type-guid=1\n"
+-        "--partition --name=raw_b --size=1KB --type-guid=2\n",
++        "disk: {type: ufs, size: 1}\n"
++        "partitions:\n"
++        '  - {name: raw_a, size: "1KB", type-guid: %s}\n'
++        '  - {name: raw_b, size: "1KB", type-guid: %s}\n' % (guid, guid),
+         encoding="utf-8",
+     )
+     rules = gen_udev_rules.generate_rules([first, second])
+diff --git a/tests/unit/test_loaders_conf.py b/tests/unit/test_loaders_conf.py
+deleted file mode 100644
+index 1777948..0000000
+--- a/tests/unit/test_loaders_conf.py
++++ /dev/null
+@@ -1,467 +0,0 @@
+-# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+-# SPDX-License-Identifier: BSD-3-Clause
+-"""
+-Tests for ``qcom_ptool.loaders.conf`` plus a small main() smoke test.
+-
+-The bulk of these started life as characterization tests against the inline
+-parser in ``gen_partition.py`` and were rewritten to target the extracted
+-loader. They pin the contract that any future loader (e.g. YAML) must match
+-to remain byte-for-byte compatible with the .conf path.
+-"""
+-
+-from __future__ import annotations
+-
+-import pytest
+-
+-from qcom_ptool import gen_partition as gp
+-from qcom_ptool import spec
+-from qcom_ptool.loaders import UnsupportedFormatError, conf, load
+-
+-
+-# ---------------------------------------------------------------------------
+-# partition_size_in_kb
+-# ---------------------------------------------------------------------------
+-
+-
+-@pytest.mark.parametrize(
+-    "size,expected",
+-    [
+-        # bare bytes -> divided by 1024
+-        ("1024", 1),
+-        ("2048", 2),
+-        ("0", 0),
+-        # KB / Kb / Kk
+-        ("1KB", 1),
+-        ("128KB", 128),
+-        ("4Kb", 4),
+-        ("4K", 4),
+-        # MB / Mb / M -> *1024
+-        ("1MB", 1024),
+-        ("2MB", 2048),
+-        ("4M", 4096),
+-        # GB / Gb / G -> *1024*1024
+-        ("1GB", 1024 * 1024),
+-        ("64GB", 64 * 1024 * 1024),
+-    ],
+-)
+-def test_partition_size_in_kb_recognised_forms(size: str, expected: int) -> None:
+-    assert conf.partition_size_in_kb(size) == expected
+-
+-
+-@pytest.mark.parametrize(
+-    "size",
+-    [
+-        "abc",
+-        "1TB",
+-        "MB",
+-        "1PB",
+-        # decimals, signs, prefixes and spacing must not be silently misread
+-        "1.5MB",
+-        "0.5GB",
+-        "2.5KB",
+-        "-5KB",
+-        "foo123KB",
+-        "10 KB",
+-        "5KBMB",
+-        "",
+-    ],
+-)
+-def test_partition_size_in_kb_unrecognised_forms_raise(size: str) -> None:
+-    """Anything outside ^[0-9]+([KkMmGg][Bb]?)?$ (the YAML schema grammar)
+-    raises rather than being silently misread, e.g. "1.5MB" is not 5MB."""
+-    with pytest.raises(ValueError, match="Unrecognized size format"):
+-        conf.partition_size_in_kb(size)
+-
+-
+-# ---------------------------------------------------------------------------
+-# disk_options
+-# ---------------------------------------------------------------------------
+-
+-
+-def test_disk_options_returns_defaults_when_no_options() -> None:
+-    result = conf.disk_options([])
+-    assert result == spec.DISK_PARAMS_DEFAULTS
+-    # ensure caller receives a copy, not the shared default
+-    assert result is not spec.DISK_PARAMS_DEFAULTS
+-
+-
+-def test_disk_options_basic_ufs() -> None:
+-    opts = [
+-        ("--type", "ufs"),
+-        ("--size", "137438953472"),
+-        ("--sector-size-in-bytes", "4096"),
+-        ("--write-protect-boundary", "0"),
+-        ("--grow-last-partition", ""),
+-    ]
+-    result = conf.disk_options(opts)
+-    assert result["type"] == "ufs"
+-    assert result["size"] == "137438953472"
+-    assert result["SECTOR_SIZE_IN_BYTES"] == "4096"
+-    assert result["WRITE_PROTECT_BOUNDARY_IN_KB"] == "0"
+-    assert result["GROW_LAST_PARTITION_TO_FILL_DISK"] == "true"
+-
+-
+-def test_disk_options_align_partitions_converts_bytes_to_kb() -> None:
+-    # --align-partitions takes a value in bytes; stored value is in KB
+-    result = conf.disk_options([("--align-partitions", "4096")])
+-    assert result["ALIGN_PARTITIONS_TO_PERFORMANCE_BOUNDARY"] == "true"
+-    assert result["PERFORMANCE_BOUNDARY_IN_KB"] == "4"
+-
+-
+-def test_disk_options_unknown_flag_silently_ignored() -> None:
+-    # The function intentionally only matches known flags; unknown flags
+-    # leave the params at their defaults.
+-    result = conf.disk_options([("--bogus", "x")])
+-    assert result == spec.DISK_PARAMS_DEFAULTS
+-
+-
+-# ---------------------------------------------------------------------------
+-# partition_options
+-# ---------------------------------------------------------------------------
+-
+-
+-def test_partition_options_basic() -> None:
+-    opts = [
+-        ("--lun", "0"),
+-        ("--name", "rootfs"),
+-        ("--size", "33554432KB"),
+-        ("--type-guid", "B921B045-1DF0-41C3-AF44-4C6F280D3FAE"),
+-        ("--filename", "rootfs.img"),
+-    ]
+-    phys_part, entry = conf.partition_options(opts)
+-    assert phys_part == "0"
+-    assert entry["label"] == "rootfs"
+-    assert entry["size_in_kb"] == "33554432"
+-    assert entry["type"] == "B921B045-1DF0-41C3-AF44-4C6F280D3FAE"
+-    assert entry["filename"] == "rootfs.img"
+-
+-
+-def test_partition_options_phys_part_alias() -> None:
+-    # --phys-part and --lun are equivalent
+-    _, entry = conf.partition_options([("--name", "x"), ("--phys-part", "3")])
+-    assert entry["label"] == "x"
+-    phys_part, _ = conf.partition_options([("--phys-part", "3")])
+-    assert phys_part == "3"
+-
+-
+-def test_partition_options_size_with_suffix_normalises_to_kb() -> None:
+-    _, entry = conf.partition_options([("--size", "2MB")])
+-    assert entry["size_in_kb"] == "2048"
+-
+-    _, entry = conf.partition_options([("--size", "1GB")])
+-    assert entry["size_in_kb"] == str(1024 * 1024)
+-
+-
+-def test_partition_options_attributes_bootable_and_readonly_bits() -> None:
+-    # bit 2 (0x4) -> bootable=true; bit 60 (1<<60) -> readonly=true
+-    _, entry = conf.partition_options([("--attributes", "1000000000000004")])
+-    assert entry["bootable"] == "true"
+-    assert entry["readonly"] == "true"
+-
+-    # bit 2 alone -> bootable=true, readonly=false
+-    _, entry = conf.partition_options([("--attributes", "4")])
+-    assert entry["bootable"] == "true"
+-    assert entry["readonly"] == "false"
+-
+-    # bit 60 alone -> bootable=false, readonly=true
+-    _, entry = conf.partition_options([("--attributes", "1000000000000000")])
+-    assert entry["bootable"] == "false"
+-    assert entry["readonly"] == "true"
+-
+-    # neither bit -> bootable=false, readonly=false
+-    _, entry = conf.partition_options([("--attributes", "0")])
+-    assert entry["bootable"] == "false"
+-    assert entry["readonly"] == "false"
+-
+-
+-@pytest.mark.parametrize("arg", ["1", "y", "yes", "true", "TRUE", "  Yes  "])
+-def test_to_bool_accepted_true_forms(arg: str) -> None:
+-    assert conf.to_bool(arg) == "true"
+-
+-
+-@pytest.mark.parametrize("arg", ["0", "n", "no", "false", "", "2", "yeah"])
+-def test_to_bool_everything_else_is_false(arg: str) -> None:
+-    assert conf.to_bool(arg) == "false"
+-
+-
+-@pytest.mark.parametrize("flag", ["active", "successful", "unbootable"])
+-def test_partition_options_ab_slot_flags(flag: str) -> None:
+-    _, entry = conf.partition_options([("--%s" % flag, "yes")])
+-    assert entry[flag] == "true"
+-
+-    _, entry = conf.partition_options([("--%s" % flag, "0")])
+-    assert entry[flag] == "false"
+-
+-
+-def test_partition_options_ab_slot_flags_default_false() -> None:
+-    _, entry = conf.partition_options([("--name", "x")])
+-    assert entry["active"] == "false"
+-    assert entry["successful"] == "false"
+-    assert entry["unbootable"] == "false"
+-
+-
+-def test_partition_options_named_bootable_and_readonly() -> None:
+-    _, entry = conf.partition_options([("--bootable", "1"), ("--readonly", "0")])
+-    assert entry["bootable"] == "true"
+-    assert entry["readonly"] == "false"
+-
+-
+-@pytest.mark.parametrize(
+-    "arg,expected", [("0", "0"), ("2", "2"), ("3", "3"), ("4", "0"), ("7", "3")]
+-)
+-def test_partition_options_priority_masked_to_two_bits(arg: str, expected: str) -> None:
+-    _, entry = conf.partition_options([("--priority", arg)])
+-    assert entry["priority"] == expected
+-
+-
+-@pytest.mark.parametrize(
+-    "arg,expected", [("0", "0"), ("6", "6"), ("7", "7"), ("8", "0"), ("9", "1")]
+-)
+-def test_partition_options_tries_remaining_masked_to_three_bits(
+-    arg: str, expected: str
+-) -> None:
+-    _, entry = conf.partition_options([("--tries-remaining", arg)])
+-    assert entry["triesremaining"] == expected
+-
+-
+-@pytest.mark.parametrize(
+-    "opts",
+-    [
+-        [("--attributes", "4"), ("--bootable", "0")],
+-        [("--bootable", "0"), ("--attributes", "4")],
+-    ],
+-)
+-def test_partition_options_named_flag_wins_over_attributes(
+-    opts: list[tuple[str, str]],
+-) -> None:
+-    _, entry = conf.partition_options(opts)
+-    assert entry["bootable"] == "false"
+-
+-
+-def test_partition_options_image_map_overrides_filename() -> None:
+-    _, entry = conf.partition_options(
+-        [("--name", "rootfs"), ("--filename", "default.img")],
+-        image_map={"rootfs": "custom-rootfs.img"},
+-    )
+-    assert entry["filename"] == "custom-rootfs.img"
+-
+-
+-def test_partition_options_image_map_no_match_keeps_filename() -> None:
+-    _, entry = conf.partition_options(
+-        [("--name", "rootfs"), ("--filename", "default.img")],
+-        image_map={"other": "wont-match.img"},
+-    )
+-    assert entry["filename"] == "default.img"
+-
+-
+-def test_partition_options_defaults_applied() -> None:
+-    _, entry = conf.partition_options([("--name", "x")])
+-    assert entry["type"] == "00000000-0000-0000-0000-000000000000"
+-    assert entry["bootable"] == "false"
+-    assert entry["readonly"] == "true"
+-    assert entry["sparse"] == "false"
+-    assert entry["filename"] == ""
+-
+-
+-# ---------------------------------------------------------------------------
+-# parse_disk_line (line-level)
+-# ---------------------------------------------------------------------------
+-
+-
+-def test_parse_disk_line_full_line() -> None:
+-    line = (
+-        "--disk --type=ufs --size=137438953472 "
+-        "--sector-size-in-bytes=4096 --write-protect-boundary=0 "
+-        "--grow-last-partition"
+-    )
+-    result = conf.parse_disk_line(line)
+-    assert result is not None
+-    assert result["type"] == "ufs"
+-    assert result["size"] == "137438953472"
+-    assert result["SECTOR_SIZE_IN_BYTES"] == "4096"
+-    assert result["GROW_LAST_PARTITION_TO_FILL_DISK"] == "true"
+-
+-
+-def test_parse_disk_line_returns_none_when_not_disk_line() -> None:
+-    # A line that doesn't start with --disk is silently dropped.
+-    assert conf.parse_disk_line("--partition --name=x --size=1KB") is None
+-
+-
+-# ---------------------------------------------------------------------------
+-# parse_partition_lines (line-level)
+-# ---------------------------------------------------------------------------
+-
+-
+-def test_parse_partition_lines_single_partition() -> None:
+-    lines = [
+-        "--partition --lun=0 --name=rootfs --size=1KB "
+-        "--type-guid=B921B045-1DF0-41C3-AF44-4C6F280D3FAE",
+-    ]
+-    result = conf.parse_partition_lines(lines)
+-    assert "0" in result
+-    assert len(result["0"]) == 1
+-    assert result["0"][0]["label"] == "rootfs"
+-    assert result["0"][0]["size_in_kb"] == "1"
+-
+-
+-def test_parse_partition_lines_groups_by_lun() -> None:
+-    lines = [
+-        "--partition --lun=0 --name=a --size=1KB "
+-        "--type-guid=00000000-0000-0000-0000-000000000001",
+-        "--partition --lun=0 --name=b --size=2KB "
+-        "--type-guid=00000000-0000-0000-0000-000000000002",
+-        "--partition --lun=1 --name=c --size=4KB "
+-        "--type-guid=00000000-0000-0000-0000-000000000003",
+-    ]
+-    result = conf.parse_partition_lines(lines)
+-    assert sorted(result.keys()) == ["0", "1"]
+-    assert [p["label"] for p in result["0"]] == ["a", "b"]
+-    assert [p["label"] for p in result["1"]] == ["c"]
+-
+-
+-def test_parse_partition_lines_skips_non_partition_lines() -> None:
+-    # Lines not starting with --partition are silently ignored by this helper.
+-    lines = ["--disk --type=ufs --size=1024", "--something-else"]
+-    assert conf.parse_partition_lines(lines) == {}
+-
+-
+-def test_parse_partition_lines_accepts_named_flags() -> None:
+-    lines = [
+-        "--partition --name=boot_a --size=128MB --bootable=1 --readonly=0 "
+-        "--active=1 --successful=0 --unbootable=0 --priority=3 --tries-remaining=7"
+-    ]
+-    entry = conf.parse_partition_lines(lines)["0"][0]
+-    assert entry["bootable"] == "true"
+-    assert entry["readonly"] == "false"
+-    assert entry["active"] == "true"
+-    assert entry["successful"] == "false"
+-    assert entry["unbootable"] == "false"
+-    assert entry["priority"] == "3"
+-    assert entry["triesremaining"] == "7"
+-
+-
+-# ---------------------------------------------------------------------------
+-# loader public API: load() + dispatcher
+-# ---------------------------------------------------------------------------
+-
+-
+-def test_conf_load_full(tmp_path) -> None:
+-    p = tmp_path / "p.conf"
+-    p.write_text(
+-        "# header\n"
+-        "--disk --type=ufs --size=1073741824 --sector-size-in-bytes=4096\n"
+-        "--partition --lun=0 --name=rootfs --size=1KB "
+-        "--type-guid=B921B045-1DF0-41C3-AF44-4C6F280D3FAE --filename=r.img\n"
+-    )
+-    result = conf.load(str(p))
+-    assert result["disk"]["type"] == "ufs"
+-    assert result["disk"]["size"] == "1073741824"
+-    assert result["partitions"]["0"][0]["label"] == "rootfs"
+-    assert result["partitions"]["0"][0]["filename"] == "r.img"
+-
+-
+-def test_conf_load_image_map_overrides_filename(tmp_path) -> None:
+-    p = tmp_path / "p.conf"
+-    p.write_text(
+-        "--disk --type=ufs --size=1073741824 --sector-size-in-bytes=4096\n"
+-        "--partition --lun=0 --name=rootfs --size=1KB "
+-        "--type-guid=B921B045-1DF0-41C3-AF44-4C6F280D3FAE --filename=default.img\n"
+-    )
+-    result = conf.load(str(p), image_map={"rootfs": "override.img"})
+-    assert result["partitions"]["0"][0]["filename"] == "override.img"
+-
+-
+-def test_conf_load_rejects_two_disk_lines(tmp_path) -> None:
+-    p = tmp_path / "p.conf"
+-    p.write_text("--disk --type=ufs --size=1\n--disk --type=ufs --size=2\n")
+-    with pytest.raises(conf.ConfParseError, match="more than one --disk"):
+-        conf.load(str(p))
+-
+-
+-def test_conf_load_rejects_missing_disk_line(tmp_path) -> None:
+-    p = tmp_path / "p.conf"
+-    p.write_text(
+-        "--partition --lun=0 --name=x --size=1KB "
+-        "--type-guid=00000000-0000-0000-0000-000000000001\n"
+-    )
+-    with pytest.raises(conf.ConfParseError, match="no --disk entry"):
+-        conf.load(str(p))
+-
+-
+-def test_dispatcher_routes_conf_extension(tmp_path) -> None:
+-    p = tmp_path / "p.conf"
+-    p.write_text(
+-        "--disk --type=ufs --size=1073741824 --sector-size-in-bytes=4096\n"
+-        "--partition --lun=0 --name=x --size=1KB "
+-        "--type-guid=00000000-0000-0000-0000-000000000001\n"
+-    )
+-    result = load(str(p))
+-    assert result["disk"]["type"] == "ufs"
+-
+-
+-def test_dispatcher_rejects_unknown_extension(tmp_path) -> None:
+-    p = tmp_path / "p.toml"
+-    p.write_text("not actually parsed")
+-    with pytest.raises(UnsupportedFormatError, match="No loader registered"):
+-        load(str(p))
+-
+-
+-# ---------------------------------------------------------------------------
+-# main() smoke test (end-to-end via gen_partition.main)
+-# ---------------------------------------------------------------------------
+-
+-
+-def test_main_produces_xml_for_minimal_conf(tmp_path) -> None:
+-    conf_path = tmp_path / "partitions.conf"
+-    conf_path.write_text(
+-        "# comment line, should be ignored\n"
+-        "\n"
+-        "--disk --type=ufs --size=1073741824 --sector-size-in-bytes=4096\n"
+-        "--partition --lun=0 --name=rootfs --size=1KB "
+-        "--type-guid=B921B045-1DF0-41C3-AF44-4C6F280D3FAE --filename=r.img\n"
+-    )
+-    out = tmp_path / "partitions.xml"
+-
+-    rc = gp.main(["gen_partition", "-i", str(conf_path), "-o", str(out)])
+-
+-    assert rc == 0
+-    content = out.read_text()
+-    assert "physical_partition" in content
+-    assert 'label="rootfs"' in content
+-    assert 'size_in_kb="1"' in content
+-
+-
+-def test_main_image_map_override_applied(tmp_path) -> None:
+-    conf_path = tmp_path / "partitions.conf"
+-    conf_path.write_text(
+-        "--disk --type=ufs --size=1073741824 --sector-size-in-bytes=4096\n"
+-        "--partition --lun=0 --name=rootfs --size=1KB "
+-        "--type-guid=B921B045-1DF0-41C3-AF44-4C6F280D3FAE --filename=default.img\n"
+-    )
+-    out = tmp_path / "partitions.xml"
+-
+-    rc = gp.main(
+-        [
+-            "gen_partition",
+-            "-i", str(conf_path),
+-            "-o", str(out),
+-            "-m", "rootfs=override.img",
+-        ]
+-    )
+-
+-    assert rc == 0
+-    assert 'filename="override.img"' in out.read_text()
+-
+-
+-def test_main_rejects_two_disk_lines(tmp_path, capsys) -> None:
+-    conf_path = tmp_path / "partitions.conf"
+-    conf_path.write_text(
+-        "--disk --type=ufs --size=1\n"
+-        "--disk --type=ufs --size=2\n"
+-    )
+-    out = tmp_path / "partitions.xml"
+-
+-    rc = gp.main(["gen_partition", "-i", str(conf_path), "-o", str(out)])
+-
+-    assert rc == 1
+-    assert "more than one --disk" in capsys.readouterr().out
+diff --git a/tests/unit/test_loaders_yaml.py b/tests/unit/test_loaders_yaml.py
+index 810ac6e..d213647 100644
+--- a/tests/unit/test_loaders_yaml.py
++++ b/tests/unit/test_loaders_yaml.py
+@@ -1,31 +1,18 @@
+ # Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ # SPDX-License-Identifier: BSD-3-Clause
+ """
+-Unit tests for the YAML partition loader.
+-
+-The load-bearing property is that the YAML loader produces the *same*
+-LoadedSpec as the .conf loader, so both emit byte-identical XML. These tests
+-pin that equivalence on a real board, on a synthetic multi-LUN spec with
+-attribute bits, and at the XML-bytes level, plus the schema rejections that
+-protect against the documented YAML footguns.
++Unit tests for the YAML partition loader: size grammar, LUN grouping,
++attribute decoding, named fields, and the schema rejections that protect
++against the documented YAML footguns.
+ """
+ 
+ from __future__ import annotations
+ 
+-import os
+-
+ import pytest
+ 
+-from qcom_ptool.gen_partition import generate_partition_xml
+-from qcom_ptool.loaders import load
++from qcom_ptool.loaders import UnsupportedFormatError, load
+ from qcom_ptool.loaders import yaml as yaml_loader
+ 
+-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+-# Self-contained fixtures: glymur-crd migrated to YAML, so the parity
+-# reference lives here rather than under platforms/.
+-GLYMUR_NVME_CONF = os.path.join(DATA_DIR, "glymur-crd-nvme.conf")
+-GLYMUR_NVME_YAML = os.path.join(DATA_DIR, "glymur-crd-nvme.yaml")
+-
+ 
+ def _write(tmp_path, name: str, text: str) -> str:
+     path = tmp_path / name
+@@ -34,28 +21,84 @@ def _write(tmp_path, name: str, text: str) -> str:
+ 
+ 
+ # ---------------------------------------------------------------------------
+-# Equivalence with the .conf loader
++# partition_size_in_kb
+ # ---------------------------------------------------------------------------
+ 
+ 
+-def test_yaml_matches_conf_for_glymur_nvme():
+-    """The committed YAML fixture and the real board .conf load identically."""
+-    assert load(GLYMUR_NVME_YAML) == load(GLYMUR_NVME_CONF)
++@pytest.mark.parametrize(
++    "size,expected",
++    [
++        # bare bytes -> divided by 1024
++        ("1024", 1),
++        ("2048", 2),
++        ("0", 0),
++        # KB / Kb / K
++        ("1KB", 1),
++        ("128KB", 128),
++        ("4Kb", 4),
++        ("4K", 4),
++        # MB / Mb / M -> *1024
++        ("1MB", 1024),
++        ("2MB", 2048),
++        ("4M", 4096),
++        # GB / Gb / G -> *1024*1024
++        ("1GB", 1024 * 1024),
++        ("64GB", 64 * 1024 * 1024),
++    ],
++)
++def test_partition_size_in_kb_recognised_forms(size: str, expected: int) -> None:
++    assert yaml_loader.partition_size_in_kb(size) == expected
+ 
+ 
+-def test_yaml_matches_conf_multi_lun_and_attributes(tmp_path):
+-    """LUN grouping and attribute-bit decoding match the .conf loader."""
+-    conf = _write(
+-        tmp_path,
+-        "s.conf",
+-        "--disk --type=ufs --size=137438953472 --write-protect-boundary=0 "
+-        "--sector-size-in-bytes=4096 --grow-last-partition\n"
+-        "--partition --lun=0 --name=rootfs --size=79691776KB "
+-        "--type-guid=1B81E7E6-F50D-419B-A739-2AEEF8DA3335 --filename=rootfs.img\n"
+-        "--partition --lun=1 --name=xbl_a --size=3584KB "
+-        "--type-guid=DEA0BA2C-CBDD-4805-B4F9-F428251C3E98 --filename=xbl.elf "
+-        "--attributes=1000000000000004\n",
+-    )
++@pytest.mark.parametrize(
++    "size",
++    [
++        "abc",
++        "1TB",
++        "MB",
++        "1PB",
++        # decimals, signs, prefixes and spacing must not be silently misread
++        "1.5MB",
++        "0.5GB",
++        "2.5KB",
++        "-5KB",
++        "foo123KB",
++        "10 KB",
++        "5KBMB",
++        "",
++    ],
++)
++def test_partition_size_in_kb_unrecognised_forms_raise(size: str) -> None:
++    """Anything outside ^[0-9]+([KkMmGg][Bb]?)?$ (the YAML schema grammar)
++    raises rather than being silently misread, e.g. "1.5MB" is not 5MB."""
++    with pytest.raises(ValueError, match="Unrecognized size format"):
++        yaml_loader.partition_size_in_kb(size)
++
++
++# ---------------------------------------------------------------------------
++# Dispatcher
++# ---------------------------------------------------------------------------
++
++
++@pytest.mark.parametrize("name", ["partitions.conf", "partitions"])
++def test_dispatcher_rejects_conf(tmp_path, name):
++    path = _write(tmp_path, name, "--disk --type=ufs --size=1\n")
++    with pytest.raises(UnsupportedFormatError, match="no longer supported"):
++        load(path)
++
++
++def test_dispatcher_rejects_unknown_extension(tmp_path):
++    with pytest.raises(UnsupportedFormatError, match="No loader registered"):
++        load(_write(tmp_path, "p.toml", "not actually parsed"))
++
++
++# ---------------------------------------------------------------------------
++# LUN grouping and attribute bits
++# ---------------------------------------------------------------------------
++
++
++def test_multi_lun_and_attributes(tmp_path):
++    """Partitions group by LUN; attribute bits decode to bootable/readonly."""
+     yml = _write(
+         tmp_path,
+         "s.yaml",
+@@ -79,24 +122,20 @@ def test_yaml_matches_conf_multi_lun_and_attributes(tmp_path):
+         '    attributes: "1000000000000004"\n',
+     )
+     spec = load(yml)
+-    assert spec == load(conf)
++    assert spec["disk"]["SECTOR_SIZE_IN_BYTES"] == "4096"
++    assert spec["disk"]["WRITE_PROTECT_BOUNDARY_IN_KB"] == "0"
++    assert spec["disk"]["GROW_LAST_PARTITION_TO_FILL_DISK"] == "true"
++    assert sorted(spec["partitions"]) == ["0", "1"]
++    rootfs = spec["partitions"]["0"][0]
++    assert rootfs["size_in_kb"] == "79691776"
++    assert rootfs["bootable"] == "false"
++    assert rootfs["readonly"] == "true"
+     # attribute-bit decode: bit 2 -> bootable, bit 60 -> readonly.
+     xbl = spec["partitions"]["1"][0]
+     assert xbl["bootable"] == "true"
+     assert xbl["readonly"] == "true"
+ 
+ 
+-def test_yaml_and_conf_emit_byte_identical_xml(tmp_path):
+-    """End-to-end: the emitter output is identical for both source formats."""
+-    conf_xml = tmp_path / "from_conf.xml"
+-    yaml_xml = tmp_path / "from_yaml.xml"
+-    conf_spec = load(GLYMUR_NVME_CONF)
+-    yaml_spec = load(GLYMUR_NVME_YAML)
+-    generate_partition_xml(conf_spec["disk"], conf_spec["partitions"], str(conf_xml))
+-    generate_partition_xml(yaml_spec["disk"], yaml_spec["partitions"], str(yaml_xml))
+-    assert yaml_xml.read_bytes() == conf_xml.read_bytes()
+-
+-
+ # ---------------------------------------------------------------------------
+ # Loader behaviour
+ # ---------------------------------------------------------------------------
+@@ -137,7 +176,7 @@ def test_sparse_boolean_normalised_to_lowercase(tmp_path):
+ 
+ 
+ def test_image_map_overrides_filename(tmp_path):
+-    """The -m image map overrides filename, matching the .conf loader."""
++    """The -m image map overrides filename."""
+     spec = load(
+         _write(
+             tmp_path,
+@@ -203,23 +242,13 @@ def test_top_level_must_be_mapping(tmp_path):
+ 
+ 
+ # ---------------------------------------------------------------------------
+-# Named GPT attribute fields (conf parity)
++# Named GPT attribute fields
+ # ---------------------------------------------------------------------------
+ 
+ _GUID = "DEA0BA2C-CBDD-4805-B4F9-F428251C3E98"
+ _UGUID = "11111111-2222-3333-4444-555555555555"
+ 
+ 
+-def _conf_with(tmp_path, extra: str) -> str:
+-    return _write(
+-        tmp_path,
+-        "p.conf",
+-        "--disk --type=nvme --size=68719476736\n"
+-        "--partition --name=boot_a --size=3584KB --type-guid=%s %s\n"
+-        % (_GUID, extra),
+-    )
+-
+-
+ def _yaml_with(tmp_path, extra: str) -> str:
+     return _write(
+         tmp_path,
+@@ -229,99 +258,47 @@ def _yaml_with(tmp_path, extra: str) -> str:
+         + "  - name: boot_a\n"
+         + '    size: "3584KB"\n'
+         + '    type-guid: "%s"\n' % _GUID
+-        + "    %s\n" % extra,
++        + extra,
+     )
+ 
+ 
+ @pytest.mark.parametrize(
+-    ("yaml_field", "conf_opt", "entry_key", "expected"),
++    ("yaml_field", "entry_key", "expected"),
+     [
+-        ("bootable: true", "--bootable=yes", "bootable", "true"),
+-        ("readonly: false", "--readonly=no", "readonly", "false"),
+-        ("priority: 2", "--priority=2", "priority", "2"),
+-        ("tries-remaining: 6", "--tries-remaining=6", "triesremaining", "6"),
+-        ("active: true", "--active=1", "active", "true"),
+-        ("successful: false", "--successful=0", "successful", "false"),
+-        ("unbootable: true", "--unbootable=true", "unbootable", "true"),
+-        ('unique-guid: "%s"' % _UGUID, "--uniqueguid=%s" % _UGUID, "uniqueguid", _UGUID),
+-        ("sparse: true", "--sparse=yes", "sparse", "true"),
++        ("bootable: true", "bootable", "true"),
++        ("readonly: false", "readonly", "false"),
++        ("priority: 2", "priority", "2"),
++        ("tries-remaining: 6", "triesremaining", "6"),
++        ("active: true", "active", "true"),
++        ("successful: false", "successful", "false"),
++        ("unbootable: true", "unbootable", "true"),
++        ('unique-guid: "%s"' % _UGUID, "uniqueguid", _UGUID),
++        ("sparse: true", "sparse", "true"),
+     ],
+ )
+-def test_named_field_matches_conf(tmp_path, yaml_field, conf_opt, entry_key, expected):
+-    """Each named field loads to the exact entry the .conf option produces."""
+-    conf_spec = load(_conf_with(tmp_path, conf_opt))
+-    yaml_spec = load(_yaml_with(tmp_path, yaml_field))
+-    assert yaml_spec == conf_spec
+-    assert yaml_spec["partitions"]["0"][0][entry_key] == expected
++def test_named_field(tmp_path, yaml_field, entry_key, expected):
++    """Each named field loads to its partition entry key."""
++    spec = load(_yaml_with(tmp_path, "    %s\n" % yaml_field))
++    assert spec["partitions"]["0"][0][entry_key] == expected
+ 
+ 
+ def test_named_fields_override_attributes(tmp_path):
+-    """A named field wins over the raw attributes hex, as in the .conf loader."""
++    """A named field wins over the raw attributes hex."""
+     # attributes sets bootable (bit 2) and readonly (bit 60); named fields
+     # invert both.
+-    conf_spec = load(
+-        _conf_with(
+-            tmp_path, "--attributes=1000000000000004 --bootable=no --readonly=no"
+-        )
+-    )
+-    yaml_spec = load(
+-        _write(
++    spec = load(
++        _yaml_with(
+             tmp_path,
+-            "o.yaml",
+-            _VALID_DISK
+-            + "partitions:\n"
+-            + "  - name: boot_a\n"
+-            + '    size: "3584KB"\n'
+-            + '    type-guid: "%s"\n' % _GUID
+-            + '    attributes: "1000000000000004"\n'
+-            + "    bootable: false\n"
+-            + "    readonly: false\n",
++            '    attributes: "1000000000000004"\n'
++            "    bootable: false\n"
++            "    readonly: false\n",
+         )
+     )
+-    assert yaml_spec == conf_spec
+-    entry = yaml_spec["partitions"]["0"][0]
++    entry = spec["partitions"]["0"][0]
+     assert entry["bootable"] == "false"
+     assert entry["readonly"] == "false"
+ 
+ 
+-def test_named_fields_emit_byte_identical_xml(tmp_path):
+-    """All named fields together still emit byte-identical XML per format."""
+-    extra_conf = (
+-        "--bootable=yes --readonly=no --priority=2 --tries-remaining=6 "
+-        "--active=yes --successful=no --unbootable=no "
+-        "--uniqueguid=%s --sparse=true" % _UGUID
+-    )
+-    extra_yaml = (
+-        "    bootable: true\n"
+-        "    readonly: false\n"
+-        "    priority: 2\n"
+-        "    tries-remaining: 6\n"
+-        "    active: true\n"
+-        "    successful: false\n"
+-        "    unbootable: false\n"
+-        '    unique-guid: "%s"\n'
+-        "    sparse: true\n" % _UGUID
+-    )
+-    conf_spec = load(_conf_with(tmp_path, extra_conf))
+-    yaml_spec = load(
+-        _write(
+-            tmp_path,
+-            "full.yaml",
+-            _VALID_DISK
+-            + "partitions:\n"
+-            + "  - name: boot_a\n"
+-            + '    size: "3584KB"\n'
+-            + '    type-guid: "%s"\n' % _GUID
+-            + extra_yaml,
+-        )
+-    )
+-    conf_xml = tmp_path / "from_conf.xml"
+-    yaml_xml = tmp_path / "from_yaml.xml"
+-    generate_partition_xml(conf_spec["disk"], conf_spec["partitions"], str(conf_xml))
+-    generate_partition_xml(yaml_spec["disk"], yaml_spec["partitions"], str(yaml_xml))
+-    assert yaml_xml.read_bytes() == conf_xml.read_bytes()
+-
+-
+ @pytest.mark.parametrize(
+     "text",
+     [
+-- 
+2.53.0
+

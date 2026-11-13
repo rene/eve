@@ -1,0 +1,351 @@
+# qcom-flash
+
+Builds the [QDL](https://github.com/linux-msm/qdl) flash bundle for Qualcomm
+devices booting from UFS, based on Qualcomm IQ-8275 (IQ8) or IQ-9075 (IQ9):
+
+| Board       | SoC     | `QCOM_BOARD`  |
+|-------------|---------|---------------|
+| IQ-8275 EVK | QCS8275 | `iq-8275-evk` |
+| IQ-9075 EVK | QCS9075 | `iq-9075-evk` |
+
+On these devices the boot chain (XBL, TrustZone, hypervisor, AOP, UEFI, ...)
+lives in dedicated UFS LUNs, and everything is programmed with QDL from EDL
+mode. The EVE installer can't be used, so the bundle contains both the
+Qualcomm firmware and EVE's own partitions.
+
+The EVE image (rootfs) is the same for every board (`PLATFORM=qcom-qli`);
+what is board specific is in the flash bundle only: Qualcomm firmware, CDT,
+and the device settings (GRUB options, device trees) stored in the ESP, see
+[Boards](#boards).
+
+## Build
+
+```sh
+make ZARCH=arm64 PLATFORM=qcom-qli QCOM_BOARD=iq-9075-evk qcomflash
+```
+
+The bundle is written to `dist/arm64/<version>/qcomflash-<board>/`.
+
+`QCOM_DTB_BIN=<path>` optionally adds the firmware device tree image
+(`dtb.bin`, a multi-DTB FIT image in a VFAT filesystem) to the `dtb_a`/`dtb_b`
+partitions. It's used by the Qualcomm UEFI only, EVE's kernel gets its device
+tree from GRUB. Without it (and without a `dtb.bin` in the board's `flash/`),
+those partitions are not written, so the device keeps the one it already has.
+For now it can be taken from a QLI build (`dtb.bin` in the `.qcomflash`
+directory).
+
+## Boards
+
+A board is a directory, [boards/](boards) has the Qualcomm reference ones:
+
+| File                         |           | Description                                         |
+|------------------------------|-----------|-----------------------------------------------------|
+| `board.conf`                 | mandatory | `BASE=iq-8275-evk` or `BASE=iq-9075-evk`: Qualcomm boot firmware, CDT and UFS partition layout the board is based on |
+| `grub.cfg`                   | optional  | board GRUB settings, appended to `grub-qcom.cfg`     |
+| `grub-qcom.cfg`              | optional  | replaces the common [grub-qcom.cfg](grub-qcom.cfg)   |
+| `dtb/`                       | optional  | device trees (or any file), copied to `/dtb` in the ESP |
+| `partitions/partitions.yaml` | optional  | UFS layout of LUNs 1-5 (qcom-ptool YAML), replaces the base's one, see [Custom firmware and partitions](#custom-firmware-and-partitions) |
+| `firmware/`                  | optional  | files for `/lib/firmware` on the device, see [Board firmware for /lib/firmware](#board-firmware-for-libfirmware) |
+| `flash/`                     | optional  | files copied into the bundle over the base's ones (`xbl.elf`, `cdt.bin`, `dtb.bin`, `mfg.bin`, ...) |
+
+Boards are not part of the `qcom-flash` image: the board directory is mounted
+when the bundle is made, so boards with proprietary files don't end up in a
+published image.
+
+### Device settings: grub-hv.cfg in the ESP
+
+`make-qcomflash` writes the common `grub-qcom.cfg` followed by the board's
+`grub.cfg` to `/EFI/BOOT/grub-hv.cfg` in the ESP. EVE's GRUB configuration
+([pkg/grub/rootfs.cfg](../grub/rootfs.cfg)) sources it on every boot, after its
+own platform detection and before `grub.cfg` from the CONFIG partition. These
+settings live outside of the rootfs, so they are kept across EVE updates, and
+the same EVE image works on all boards.
+
+They set the variables documented at the top of `rootfs.cfg` with
+`set_global` (`dom0_console`, `dom0_platform_tweaks`, `devicetree`, ...):
+
+```sh
+# device tree from the EVE rootfs (kernel package)...
+set_to_existing_file devicetree "/boot/dtb/qcom/monaco-evk-el2.dtb"
+# ...or shipped by the board in its dtb/ directory (${esp_dev} is the ESP)
+set_to_existing_file devicetree "${esp_dev}/dtb/my-board.dtb"
+
+set_global dom0_platform_tweaks "net.ifnames=0 earlycon arm64.nopauth"
+```
+
+`set_to_existing_file` only sets the variable if the file exists, so a wrong
+path doesn't make the device unbootable (GRUB falls back to the device tree
+from the UEFI firmware).
+
+Note that a device tree in the ESP is not updated with EVE: it must stay
+compatible with the kernels of the EVE versions the device will run. Device
+trees that are part of EVE's kernel (`/boot/dtb/...`) follow EVE updates.
+
+### Custom devices
+
+For a device based on IQ8 or IQ9 with its own device tree and GRUB options,
+create a board directory, e.g. starting from the reference board:
+
+```sh
+cp -r pkg/qcom-flash/boards/iq-8275-evk my-iq8-box
+# edit my-iq8-box/board.conf (BASE) and my-iq8-box/grub.cfg,
+# add my-iq8-box/dtb/my-iq8-box.dtb, optionally flash/ and partitions/
+```
+
+and build the bundle with it, without changing EVE's tree:
+
+```sh
+make ZARCH=arm64 PLATFORM=qcom-qli QCOM_BOARD_DIR=/path/to/my-iq8-box qcomflash
+```
+
+`QCOM_BOARD` defaults to the directory name (`my-iq8-box`), the bundle goes to
+`dist/arm64/<version>/qcomflash-my-iq8-box/`. Boards that should be part of
+EVE go to `pkg/qcom-flash/boards/<name>/` and are built with
+`QCOM_BOARD=<name>`.
+
+The same can be done without building EVE, from an existing EVE release
+(installer directory with `EFI/`, `rootfs.img` and `config.img`):
+
+```sh
+tools/makeqcomflash.sh my-iq8-box <installer dir> <output dir> "" /path/to/my-iq8-box
+```
+
+### Custom firmware and partitions
+
+A custom board can replace any file of the base and add its own ones
+(board-specific XBL/AOP/hypervisor builds, CDT, provisioning data such as MAC
+addresses, ...). Everything in `flash/` is copied into the bundle, keeping
+the subdirectories: a file with the same path as a base file replaces it,
+any other file is added. `make-qcomflash` doesn't check that the firmware
+files are compatible with each other or with EVE, this is up to the board
+integrator.
+
+Added files are only flashed if a partition references them, so new files
+usually come with `partitions/partitions.yaml`: the full UFS layout of LUNs 1-5
+as a [qcom-ptool](https://github.com/qualcomm-linux/qcom-ptool) board with one
+UFS storage and its partitions, replacing the base's one. The simplest is to
+start from the base's resolved layout: `partitions.yaml` in the bundle of the
+reference board, or the output of
+`qcom-ptool show --platform platforms/<base>.yaml` (the configuration named
+after the base), without its `name:`, `contents:` and LUN 0 partitions. Then
+change it: `filename:` maps a file of the bundle to a partition. A layout using
+`luns:` groups or `includes:` also works, as long as its references resolve
+relative to the file itself.
+
+LUN 0 can't be changed, it is always EVE's
+([partitions/eve-lun0.yaml](partitions/eve-lun0.yaml)), so LUN 0 partitions are
+rejected. In a resolved layout the firmware LUNs end with a zero-size
+`last_parti` entry (`grow: false` in qcom-ptool's flavors): new partitions go
+before it. The old `partitions.conf` format is not supported anymore.
+
+```
+my-iq8-box/
+├── board.conf                  BASE=iq-8275-evk
+├── grub.cfg
+├── flash/
+│   ├── xbl.elf                 replaces the base's xbl.elf (xbl_a/xbl_b)
+│   ├── cdt.bin                 replaces the base's CDT
+│   └── mfg.bin                 new file, flashed to the new "mfg" partition
+└── partitions/
+    └── partitions.yaml         base layout + the partition below
+```
+
+```yaml
+storage:
+  - id: ufs
+    type: ufs
+    ...
+    partitions:
+      ...
+      - {name: mfg, size: 1024KB, type-guid: <GUID>, filename: mfg.bin, lun: 4}
+      - {name: last_parti, size: 0KB, type-guid: 00000000-0000-0000-0000-000000000000, lun: 4}
+      ...
+```
+
+The GPT and QDL files are generated by `make-qcomflash` with qcom-ptool, and
+the bundle is checked before it is considered ready:
+
+* every file referenced by `rawprogram*.xml` must be in the bundle (error)
+* every file must fit in its partition (error), partitions grown at flash time
+  (size 0) excepted
+* files of the bundle that are not written to any partition are reported
+  (warning), except the programmers (`prog_*`), licenses, `sail_nor/` and the
+  partition table files
+
+### Board firmware for /lib/firmware
+
+Third party firmware loaded by Linux drivers (Wi-Fi, Bluetooth, remote
+processors, ...) goes to the board's `firmware/` directory, with the same
+layout as `/lib/firmware` (e.g. `firmware/ath11k/WCN6855/hw2.1/board-2.bin`).
+It can't go into the rootfs: the rootfs is the same for every board, and EVE
+updates replace it.
+
+`make-qcomflash` packs `firmware/` into a squashfs image, `/firmware.sqfs` in
+the ESP, which EVE updates don't touch. On every boot, before udev loads the
+drivers, `007-qcom-board-fw` (in [pkg/qcom](../qcom)) mounts it read-only and
+merges it over the rootfs' `/lib/firmware` with an overlay: a board file with
+the same path as one of EVE's replaces it, the others are added. The image is
+needed because FAT can't be an overlayfs layer.
+
+Things to keep in mind:
+
+* A board file keeps replacing EVE's one after EVE updates, even when an
+  update brings a newer version. `make-qcomflash` lists the files that
+  replace EVE's ones (when the rootfs is a squashfs image).
+* Drivers built into the kernel that load their firmware before userspace
+  starts don't see the board's files (that needs `CONFIG_EXTRA_FIRMWARE`).
+* Like the device trees in the ESP, these files are not covered by the rootfs
+  verification, and keeping them compatible with the EVE kernels the device
+  will run is up to the board integrator.
+
+The bundle lists the files and their checksums in `bundle-firmware.txt`.
+
+### Identifying custom builds
+
+The build is flagged as custom when the board's `flash/` files differ from or
+are added to the base's ones, when its partition layout differs from the
+base's one, when it has `firmware/` files, or when `QCOM_DTB_BIN` is used. The reference boards are never
+custom. This is recorded, with a board ID (the sha256 of all the files of the
+board directory, names and contents), in:
+
+* `/EFI/BOOT/board.info` in the ESP, readable on the device (the ESP is
+  mounted by EVE):
+
+  ```
+  board=my-iq8-box
+  base=iq-8275-evk
+  board_id=3f1c...
+  custom=yes
+  custom_reasons=layout flash
+  layout=board
+  flash_replaced=cdt.bin xbl.elf
+  flash_added=mfg.bin
+  dtb=board
+  firmware_files=0
+  firmware_sha256=
+  eve_version=...
+  ```
+
+* `bundle-manifest.txt` and `bundle-manifest.json` in the bundle: the same
+  settings, plus for every file its sha256, size, origin (`base`,
+  `board-replaced`, `board-added`, `override`, `eve` or `generated`) and the
+  partitions it is written to.
+
+## Flash
+
+Put the device in EDL mode (see the board user guide) and run, from the bundle
+directory:
+
+```sh
+qdl --storage ufs prog_firehose_ddr.elf rawprogram*.xml patch*.xml
+```
+
+The SAIL (safety island) NOR flash is programmed separately, if needed:
+
+```sh
+cd sail_nor
+qdl --storage spinor prog_firehose_ddr.elf rawprogram0.xml patch0.xml
+```
+
+## What's in the bundle
+
+Built into this package, at the same versions as the Qualcomm Linux BSP
+(QLI 2.1, [meta-qcom](https://github.com/qualcomm-linux/meta-qcom)):
+
+* Boot firmware (NHLOS) from the Qualcomm software center:
+  `QCS8300_bootbinaries` / `QCS9100_bootbinaries` version `00142`, plus their
+  `immutable` companion archives (`cpucp.elf`). `xbl_config_kvm.elf` is used
+  as `xbl_config.elf` (non-Gunyah configuration, EL2 available to Linux/KVM).
+* CDT (Configuration Data Table) from CodeLinaro, installed as `cdt.bin`.
+* The default UFS layout of the base, resolved from `platforms/<base>.yaml`
+  of [qcom-ptool](https://github.com/qualcomm-linux/qcom-ptool) with
+  `qcom-ptool show`, and qcom-ptool itself (with the patches below). The GPT
+  and QDL files are generated when the bundle is made: LUNs 1-5 (boot
+  firmware) from the board's or the base's layout, LUN 0 from EVE's layout in
+  [partitions/eve-lun0.yaml](partitions/eve-lun0.yaml) (`qcom-layout` merges
+  them).
+
+Added by `make-qcomflash` when building the bundle, from EVE's build outputs and
+the board directory:
+
+| File         | Partition    | Content                                         |
+|--------------|--------------|-------------------------------------------------|
+| `efi.img`    | efi          | ESP: GRUB, grub.cfg selecting IMGA/IMGB, the board's grub-hv.cfg, dtb/ and firmware.sqfs |
+| `rootfs.img` | IMGA         | EVE rootfs                                      |
+| `config.img` | CONFIG       | EVE config partition                            |
+| `efi_b.img`  | EFI System B | reserved ESP-B, empty FAT                       |
+| `dtb.bin`    | dtb_a/dtb_b  | optional, see above                             |
+| `gpt_*.bin`, `rawprogram*.xml`, `patch*.xml`, `zeros_*.bin` | | generated with qcom-ptool, see above |
+| `bundle-manifest.*` |       | build identification and file list, see [Identifying custom builds](#identifying-custom-builds) |
+
+plus the files of the board's `flash/` directory.
+
+The FAT images use 4096-byte sectors, the logical sector size of the UFS LUNs
+(Linux and UEFI refuse to mount a FAT whose sector size is smaller than the
+device's). They are cut right after their last non-zero block: the
+filesystems span their whole partitions, but QDL only writes the used part.
+
+## LUN 0 layout and /persist
+
+LUN 0 has the same partitions and unique GUIDs as the images built by
+`pkg/mkimage-raw-efi`, with three differences required by the Qualcomm UEFI or
+by flashing:
+
+* the ESP is labelled `efi`: the Qualcomm UEFI looks it up by that label (as in
+  the Qualcomm Linux BSP) or by the ESP type GUID
+* ESP-B has the Basic Data type instead of the ESP one: with two ESP-type
+  partitions the Qualcomm UEFI fails to set up the ESP ("More than 1 partition
+  found for the given GUID")
+* there's no `P3` partition, but a `P3_PENDING` placeholder covering the rest
+  of the LUN
+
+On the first boot, `storage-init` decides where /persist goes, using the same kernel command line
+options as the EVE installer (they can be set in the CONFIG partition's
+`grub.cfg`):
+
+* no `eve_persist_disk`: `P3_PENDING` is replaced by `P3` on the UFS
+* `eve_persist_disk=<disk>` (e.g. `nvme0n1`): `<disk>` is wiped and gets `P3`
+* `eve_persist_disk=<disk1>,<disk2>,...`: a ZFS `persist` pool is created on
+  the disks (`eve_install_zfs_with_raid_level` sets the raid level)
+
+`P3_PENDING` is removed once /persist storage exists, so this only happens
+once: if the persist disk later goes missing, EVE doesn't silently create a
+new, empty /persist on the UFS. An existing `P3` partition or `persist` pool
+(e.g. the UFS was re-flashed but the NVMe was kept) is reused as is.
+
+## qcom-ptool patches
+
+qcom-ptool is taken from upstream `main` (`QCOM_PTOOL_REV`) with the changes in
+[patches/](patches), which are being merged upstream. Drop them, and bump
+`QCOM_PTOOL_REV`, once they are:
+
+* `0001`/`0002`: drop the `contents.xml.in` template and the `partitions.conf`
+  formats, all layouts are YAML
+* `0003`: keep the `attributes` bits other than bootable (2) and readonly (60)
+  in the YAML loader
+* `0004`: named fields for GRUB's gptprio A/B attributes (`gptprio-priority`,
+  `gptprio-tries-left`, `gptprio-successful`, bits 48-56). EVE needs priority
+  and successful on IMGA; qcom-ptool's own `priority`/`successful` fields use
+  Qualcomm's A/B bit layout (qbootctl), which GRUB doesn't understand
+
+qcom-ptool needs PyYAML and jsonschema (`py3-yaml`, `py3-jsonschema`), in the
+image too since the GPT is generated when the bundle is made.
+
+The generated LUN 0 GPT is checked against `eve-lun0.yaml` (`verify-gpt.py`),
+for every base when this package is built, so a qcom-ptool update that breaks
+this fails the build.
+
+## Updating
+
+Versions are pinned in the [Dockerfile](Dockerfile) (`BOOTBIN_VER`, CDT URLs,
+`QCOM_PTOOL_REV`) and the download checksums in
+[downloads.sha256](downloads.sha256). Take them from the matching meta-qcom
+recipes: `recipes-bsp/firmware-boot/firmware-qcom-boot-qcs{8300,9100}_*.bb`,
+`firmware-qcom-cdt-qcs{8300,9100}.bb`. `QCOM_PTOOL_REV` follows qcom-ptool's
+`main` branch, see [qcom-ptool patches](#qcom-ptool-patches).
+
+## Licensing
+
+The boot firmware is Qualcomm proprietary software (`LICENSE.qcom-2`, shipped
+in the bundle). Check its terms before redistributing bundles or images
+containing it.

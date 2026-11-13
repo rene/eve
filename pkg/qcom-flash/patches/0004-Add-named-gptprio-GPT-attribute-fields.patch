@@ -1,0 +1,400 @@
+From ac16862e203e1b122076f1ea4109d06c915211db Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=AA=20de=20Souza=20Pinto?= <rene@renesp.com.br>
+Date: Thu, 26 Nov 2026 12:10:07 +0100
+Subject: [PATCH 4/4] Add named gptprio GPT attribute fields
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+GPT attribute bits 48-63 are partition-type specific. The existing named
+A/B fields (priority, tries-remaining, active, successful, unbootable)
+follow the qbootctl layout, while GRUB's gptprio module (gptprio.next),
+using a bit layout that comes from ChromeOS, puts priority at bits 48-51,
+tries left at 52-55 and successful at bit 56. The names clash and the
+bits overlap, so e.g. successful sets bit 54, which gptprio reads as
+tries left.
+
+Add scheme-prefixed YAML fields for gptprio instead of requiring raw
+attributes hex: gptprio-priority, gptprio-tries-left and
+gptprio-successful.
+
+They are passed through partitions.xml as gptprio_* and written to the
+GPT entry, replacing any raw attributes bits they cover, so a named
+field wins over attributes as it does for the other fields. A
+partition that sets bits through both qbootctl and gptprio fields is
+rejected.
+
+Assisted-by: Claude Code:claude-opus-5-5
+Signed-off-by: Renê de Souza Pinto <rene@renesp.com.br>
+---
+ qcom_ptool/loaders/yaml.py               |  8 +++
+ qcom_ptool/ptool.py                      | 23 ++++++-
+ qcom_ptool/schema/flavor.schema.json     |  3 +
+ qcom_ptool/schema/include.schema.json    |  3 +
+ qcom_ptool/schema/partitions.schema.json | 16 +++++
+ qcom_ptool/spec.py                       | 36 +++++++++-
+ tests/unit/test_loaders_yaml.py          | 53 +++++++++++++++
+ tests/unit/test_ptool_attributes.py      | 83 ++++++++++++++++++++++++
+ 8 files changed, 222 insertions(+), 3 deletions(-)
+ create mode 100644 tests/unit/test_ptool_attributes.py
+
+diff --git a/qcom_ptool/loaders/yaml.py b/qcom_ptool/loaders/yaml.py
+index fad7b62..634c23b 100644
+--- a/qcom_ptool/loaders/yaml.py
++++ b/qcom_ptool/loaders/yaml.py
+@@ -30,6 +30,7 @@ from qcom_ptool.spec import (
+     LoadedSpec,
+     PartitionEntry,
+     PartitionsByLun,
++    check_ab_scheme,
+ )
+ 
+ _SCHEMA_PACKAGE = "qcom_ptool.schema"
+@@ -138,12 +139,19 @@ def _partition_from_node(
+         entry["successful"] = _bool_str(node["successful"])
+     if "unbootable" in node:
+         entry["unbootable"] = _bool_str(node["unbootable"])
++    if "gptprio-priority" in node:
++        entry["gptprio_priority"] = str(int(node["gptprio-priority"]))
++    if "gptprio-tries-left" in node:
++        entry["gptprio_tries_left"] = str(int(node["gptprio-tries-left"]))
++    if "gptprio-successful" in node:
++        entry["gptprio_successful"] = _bool_str(node["gptprio-successful"])
+     if "unique-guid" in node:
+         entry["uniqueguid"] = str(node["unique-guid"])
+     if "filename" in node:
+         entry["filename"] = str(node["filename"])
+     if "sparse" in node:
+         entry["sparse"] = _bool_str(node["sparse"])
++    check_ab_scheme(entry)
+     if entry["label"] in image_map:
+         entry["filename"] = image_map[entry["label"]]
+     return phys_part, entry
+diff --git a/qcom_ptool/ptool.py b/qcom_ptool/ptool.py
+index dcd1997..6c36c40 100644
+--- a/qcom_ptool/ptool.py
++++ b/qcom_ptool/ptool.py
+@@ -43,6 +43,14 @@ from xml.etree.ElementTree import Comment, Element, SubElement
+ 
+ from qcom_ptool.utils import CalcCRC32, EnsureDirectoryExists, PrintBigError, PrintBigWarning
+ 
++# A/B attribute fields for GRUB's gptprio module (gptprio.next), using the
++# ChromeOS bit layout: (partitions.xml attribute, first bit, width in bits)
++GPTPRIO_FIELDS = (
++    ("gptprio_priority", 48, 4),
++    ("gptprio_tries_left", 52, 4),
++    ("gptprio_successful", 56, 1),
++)
++
+ OutputFolder = ""
+ 
+ LastPartitionBeginsAt = 0
+@@ -1025,9 +1033,16 @@ def CreateGPTPartitionTable(PhysicalPartitionNumber, UserProvided=False):
+             Attributes |= 1 << 54
+         if PhyPartition[k][j]["unbootable"] == "true":
+             Attributes |= 1 << 55
+-        # Raw attribute bits from --attributes (e.g. ChromeOS/CoreOS gptprio
+-        # priority/tries/successful bits 48-56)
++        # Raw attribute bits from --attributes (e.g. partition-type specific
++        # bits 48-63)
+         Attributes |= PhyPartition[k][j].get("attributes", 0)
++        # A/B fields for GRUB's gptprio module; a named field replaces
++        # whatever the raw attributes put in its bits
++        for key, shift, width in GPTPRIO_FIELDS:
++            if key in PhyPartition[k][j]:
++                mask = ((1 << width) - 1) << shift
++                Attributes &= ~mask
++                Attributes |= (PhyPartition[k][j][key] << shift) & mask
+ 
+         print("Attributes\t\t0x%X" % Attributes)
+ 
+@@ -2075,6 +2090,10 @@ def ParseXML(XMLFile):
+                         Partition["priority"] = int(value)
+                     elif name == "attributes":
+                         Partition["attributes"] = int(value, 16)
++                    elif name in ("gptprio_priority", "gptprio_tries_left"):
++                        Partition[name] = int(value)
++                    elif name == "gptprio_successful":
++                        Partition[name] = 1 if value == "true" else 0
+                     elif name == "size":
+                         if len(value) == 0:
+                             PrintBigError("\nERROR: Invalid partition size")
+diff --git a/qcom_ptool/schema/flavor.schema.json b/qcom_ptool/schema/flavor.schema.json
+index ec2377b..05dad16 100644
+--- a/qcom_ptool/schema/flavor.schema.json
++++ b/qcom_ptool/schema/flavor.schema.json
+@@ -103,6 +103,9 @@
+                 "active": {"type": "boolean"},
+                 "successful": {"type": "boolean"},
+                 "unbootable": {"type": "boolean"},
++                "gptprio-priority": {"type": "integer", "minimum": 0, "maximum": 15},
++                "gptprio-tries-left": {"type": "integer", "minimum": 0, "maximum": 15},
++                "gptprio-successful": {"type": "boolean"},
+                 "unique-guid": {
+                     "type": "string",
+                     "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
+diff --git a/qcom_ptool/schema/include.schema.json b/qcom_ptool/schema/include.schema.json
+index 2c3991c..78749ef 100644
+--- a/qcom_ptool/schema/include.schema.json
++++ b/qcom_ptool/schema/include.schema.json
+@@ -29,6 +29,9 @@
+                     "active": {"type": "boolean"},
+                     "successful": {"type": "boolean"},
+                     "unbootable": {"type": "boolean"},
++                    "gptprio-priority": {"type": "integer", "minimum": 0, "maximum": 15},
++                    "gptprio-tries-left": {"type": "integer", "minimum": 0, "maximum": 15},
++                    "gptprio-successful": {"type": "boolean"},
+                     "unique-guid": {"type": "string", "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"},
+                     "sparse": {"type": "boolean"},
+                     "lun": {"type": "integer", "minimum": 0},
+diff --git a/qcom_ptool/schema/partitions.schema.json b/qcom_ptool/schema/partitions.schema.json
+index 612cd29..cb0f944 100644
+--- a/qcom_ptool/schema/partitions.schema.json
++++ b/qcom_ptool/schema/partitions.schema.json
+@@ -104,6 +104,22 @@
+                         "description": "A/B slot unbootable flag (GPT attribute bit 55).",
+                         "type": "boolean"
+                     },
++                    "gptprio-priority": {
++                        "description": "A/B priority for GRUB's gptprio module (gptprio.next), GPT attribute bits 48-51. Bit layout from ChromeOS; can't be combined with the qbootctl A/B fields.",
++                        "type": "integer",
++                        "minimum": 0,
++                        "maximum": 15
++                    },
++                    "gptprio-tries-left": {
++                        "description": "A/B tries left for GRUB's gptprio module (gptprio.next), GPT attribute bits 52-55. Bit layout from ChromeOS; can't be combined with the qbootctl A/B fields.",
++                        "type": "integer",
++                        "minimum": 0,
++                        "maximum": 15
++                    },
++                    "gptprio-successful": {
++                        "description": "A/B boot-successful flag for GRUB's gptprio module (gptprio.next), GPT attribute bit 56. Bit layout from ChromeOS; can't be combined with the qbootctl A/B fields.",
++                        "type": "boolean"
++                    },
+                     "unique-guid": {
+                         "description": "Partition unique GUID; must be a quoted string to avoid integer misparsing.",
+                         "type": "string",
+diff --git a/qcom_ptool/spec.py b/qcom_ptool/spec.py
+index 73b1a4f..295300a 100644
+--- a/qcom_ptool/spec.py
++++ b/qcom_ptool/spec.py
+@@ -28,7 +28,9 @@ DiskParams = dict[str, str]
+ 
+ # One partition normalised for the XML attribute set.
+ # Expected keys: label, size_in_kb, type, bootable, readonly, filename, sparse,
+-# active, successful, unbootable.
++# active, successful, unbootable. Optional keys: priority, triesremaining,
++# attributes, uniqueguid, gptprio_priority, gptprio_tries_left,
++# gptprio_successful.
+ # See PARTITION_ENTRY_DEFAULTS for the canonical set.
+ PartitionEntry = dict[str, str]
+ 
+@@ -68,6 +70,38 @@ PARTITION_ENTRY_DEFAULTS: PartitionEntry = {
+ }
+ 
+ 
++# GPT attribute bits 48-63 are partition-type specific, and two A/B schemes
++# use them differently:
++#   - qbootctl (priority, triesremaining, active, successful, unbootable):
++#     priority 48-49, active 50, tries 51-53, successful 54, unbootable 55
++#   - GRUB's gptprio module (gptprio.next), using the ChromeOS layout:
++#     priority 48-51, tries left 52-55, successful 56
++# The gptprio fields are prefixed so they can't be mistaken for the qbootctl
++# ones, and a partition may only use one of the two schemes.
++QBOOTCTL_KEYS = ("priority", "triesremaining", "active", "successful", "unbootable")
++GPTPRIO_KEYS = ("gptprio_priority", "gptprio_tries_left", "gptprio_successful")
++
++
++class AttributeSchemeError(ValueError):
++    """A partition mixes qbootctl and gptprio A/B attribute fields."""
++
++
++def _sets_bits(value: str) -> bool:
++    return value not in ("", "0", "false")
++
++
++def check_ab_scheme(entry: PartitionEntry) -> None:
++    """Reject a partition whose qbootctl and gptprio fields both set bits."""
++    qbootctl = [k for k in QBOOTCTL_KEYS if _sets_bits(entry.get(k, ""))]
++    gptprio = [k for k in GPTPRIO_KEYS if _sets_bits(entry.get(k, ""))]
++    if qbootctl and gptprio:
++        raise AttributeSchemeError(
++            "partition '%s' mixes qbootctl fields (%s) with gptprio fields (%s); "
++            "both use GPT attribute bits 48-56, pick one scheme"
++            % (entry.get("label", ""), ", ".join(qbootctl), ", ".join(gptprio))
++        )
++
++
+ class LoadedSpec(TypedDict):
+     """What every loader returns from ``load(path)``."""
+ 
+diff --git a/tests/unit/test_loaders_yaml.py b/tests/unit/test_loaders_yaml.py
+index d213647..8d15480 100644
+--- a/tests/unit/test_loaders_yaml.py
++++ b/tests/unit/test_loaders_yaml.py
+@@ -12,6 +12,7 @@ import pytest
+ 
+ from qcom_ptool.loaders import UnsupportedFormatError, load
+ from qcom_ptool.loaders import yaml as yaml_loader
++from qcom_ptool.spec import GPTPRIO_KEYS
+ 
+ 
+ def _write(tmp_path, name: str, text: str) -> str:
+@@ -274,6 +275,10 @@ def _yaml_with(tmp_path, extra: str) -> str:
+         ("unbootable: true", "unbootable", "true"),
+         ('unique-guid: "%s"' % _UGUID, "uniqueguid", _UGUID),
+         ("sparse: true", "sparse", "true"),
++        ("gptprio-priority: 2", "gptprio_priority", "2"),
++        ("gptprio-tries-left: 15", "gptprio_tries_left", "15"),
++        ("gptprio-successful: true", "gptprio_successful", "true"),
++        ('attributes: "0100000000000000"', "attributes", "0x0100000000000000"),
+     ],
+ )
+ def test_named_field(tmp_path, yaml_field, entry_key, expected):
+@@ -282,6 +287,54 @@ def test_named_field(tmp_path, yaml_field, entry_key, expected):
+     assert spec["partitions"]["0"][0][entry_key] == expected
+ 
+ 
++@pytest.mark.parametrize(
++    "qbootctl",
++    ["priority: 1", "tries-remaining: 2", "active: true", "successful: true",
++     "unbootable: true"],
++)
++def test_gptprio_rejects_qbootctl_fields(tmp_path, qbootctl):
++    """Mixing the two A/B schemes on one partition is an error."""
++    with pytest.raises(ValueError, match="pick one scheme"):
++        load(_yaml_with(tmp_path, "    %s\n    gptprio-priority: 2\n" % qbootctl))
++
++
++def test_gptprio_allows_unset_qbootctl_fields(tmp_path):
++    """qbootctl fields that set no bits don't clash with gptprio."""
++    spec = load(
++        _yaml_with(
++            tmp_path,
++            "    successful: false\n"
++            "    priority: 0\n"
++            "    gptprio-successful: true\n",
++        )
++    )
++    assert spec["partitions"]["0"][0]["gptprio_successful"] == "true"
++
++
++def test_gptprio_unset_by_default(tmp_path):
++    spec = load(_yaml_with(tmp_path, ""))
++    assert not set(GPTPRIO_KEYS) & set(spec["partitions"]["0"][0])
++
++
++def test_attributes_keeps_other_bits(tmp_path):
++    """Bits other than bootable (2) and readonly (60) pass through unchanged."""
++    spec = load(_yaml_with(tmp_path, '    attributes: "1102000000000004"\n'))
++    entry = spec["partitions"]["0"][0]
++    assert entry["bootable"] == "true"
++    assert entry["readonly"] == "true"
++    assert entry["attributes"] == "0x0102000000000000"
++
++
++def test_attributes_without_other_bits_adds_nothing(tmp_path):
++    spec = load(_yaml_with(tmp_path, '    attributes: "1000000000000004"\n'))
++    assert "attributes" not in spec["partitions"]["0"][0]
++
++
++def test_gptprio_out_of_range_rejected_by_schema(tmp_path):
++    with pytest.raises(yaml_loader.YamlParseError, match="schema validation failed"):
++        load(_yaml_with(tmp_path, "    gptprio-priority: 16\n"))
++
++
+ def test_named_fields_override_attributes(tmp_path):
+     """A named field wins over the raw attributes hex."""
+     # attributes sets bootable (bit 2) and readonly (bit 60); named fields
+diff --git a/tests/unit/test_ptool_attributes.py b/tests/unit/test_ptool_attributes.py
+new file mode 100644
+index 0000000..f85eac9
+--- /dev/null
++++ b/tests/unit/test_ptool_attributes.py
+@@ -0,0 +1,83 @@
++# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
++# SPDX-License-Identifier: BSD-3-Clause
++
++"""End-to-end checks of the GPT attribute bits ptool writes."""
++
++import struct
++import subprocess
++import sys
++
++import pytest
++
++SECTOR = 512
++GUID = "97D7B011-54DA-4835-B3C4-917AD6E73D74"
++
++
++def _gpt_attributes(tmp_path, partition_fields):
++    """Run gen_partition + ptool; return {label: attributes} from gpt_main0.bin."""
++    spec = tmp_path / "p.yaml"
++    xml = tmp_path / "p.xml"
++    lines = [
++        "disk:",
++        "  type: emmc",
++        "  size: 16777216",
++        "  sector-size: %d" % SECTOR,
++        "partitions:",
++    ]
++    for label, fields in partition_fields.items():
++        lines += [
++            "  - name: %s" % label,
++            "    size: 64KB",
++            '    type-guid: "%s"' % GUID,
++            "    readonly: false",
++        ]
++        lines += ["    %s" % field for field in fields]
++    spec.write_text("\n".join(lines) + "\n")
++    for args in (
++        ["qcom_ptool.gen_partition", "-i", str(spec), "-o", str(xml)],
++        ["qcom_ptool.ptool", "-x", str(xml)],
++    ):
++        result = subprocess.run(
++            [sys.executable, "-m", *args],
++            cwd=tmp_path,
++            capture_output=True,
++            text=True,
++            timeout=60,
++        )
++        assert result.returncode == 0, result.stdout + result.stderr
++
++    gpt = (tmp_path / "gpt_main0.bin").read_bytes()
++    header = gpt[SECTOR : 2 * SECTOR]
++    entries_lba, count, size = struct.unpack_from("<QII", header, 72)
++    found = {}
++    for i in range(count):
++        entry = gpt[entries_lba * SECTOR + i * size :][:size]
++        if entry[:16] == bytes(16):
++            continue
++        (attributes,) = struct.unpack_from("<Q", entry, 48)
++        label = entry[56:128].decode("utf-16-le").rstrip("\0")
++        found[label] = attributes
++    return found
++
++
++@pytest.mark.parametrize(
++    ("fields", "expected"),
++    [
++        # EVE's layout: gptprio priority=2 + successful (bits 49 and 56)
++        (["gptprio-priority: 2", "gptprio-successful: true"], 0x0102000000000000),
++        (["gptprio-tries-left: 15"], 0x00F0000000000000),
++        (
++            ["gptprio-priority: 15", "gptprio-tries-left: 15", "gptprio-successful: true"],
++            0x01FF000000000000,
++        ),
++        # raw bits pass through unchanged
++        (['attributes: "0102000000000000"'], 0x0102000000000000),
++        # a named gptprio field replaces the raw bits it covers
++        (['attributes: "01F0000000000000"', "gptprio-tries-left: 3"], 0x0130000000000000),
++        (['attributes: "0100000000000000"', "gptprio-successful: false"], 0),
++        # existing qbootctl fields are unchanged
++        (["priority: 3", "active: true", "successful: true"], 0x0047000000000000),
++    ],
++)
++def test_gpt_attribute_bits(tmp_path, fields, expected):
++    assert _gpt_attributes(tmp_path, {"rootfs": fields})["rootfs"] == expected
+-- 
+2.53.0
+

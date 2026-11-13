@@ -1,0 +1,68 @@
+From 87aa76503e7cb8f9630af6910d4c16f847fcc889 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=AA=20de=20Souza=20Pinto?= <rene@renesp.com.br>
+Date: Thu, 26 Nov 2026 11:41:29 +0100
+Subject: [PATCH 3/4] Keep raw attributes bits from the YAML loader
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The YAML loader only extracts bits 2 (bootable) and 60 (readonly) from
+"attributes" and drops everything else, so type-specific GPT attribute bits
+can't be set (e.g. the ChromeOS/CoreOS gptprio priority/successful bits 48-56
+used by GRUB). Keep the remaining bits, pass them through partitions.xml as
+"attributes" and OR them into the GPT entry.
+
+Signed-off-by: Renê de Souza Pinto <rene@renesp.com.br>
+---
+ qcom_ptool/loaders/yaml.py | 3 +++
+ qcom_ptool/ptool.py        | 6 ++++++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/qcom_ptool/loaders/yaml.py b/qcom_ptool/loaders/yaml.py
+index cfa39b5..fad7b62 100644
+--- a/qcom_ptool/loaders/yaml.py
++++ b/qcom_ptool/loaders/yaml.py
+@@ -120,6 +120,9 @@ def _partition_from_node(
+         attribute_bits = int(str(node["attributes"]), 16)
+         entry["bootable"] = "true" if attribute_bits & (1 << 2) else "false"
+         entry["readonly"] = "true" if attribute_bits & (1 << 60) else "false"
++        extra_bits = attribute_bits & ~((1 << 2) | (1 << 60))
++        if extra_bits:
++            entry["attributes"] = "0x%016X" % extra_bits
+     # Named fields are applied after attributes so they win.
+     if "bootable" in node:
+         entry["bootable"] = _bool_str(node["bootable"])
+diff --git a/qcom_ptool/ptool.py b/qcom_ptool/ptool.py
+index 37d4beb..dcd1997 100644
+--- a/qcom_ptool/ptool.py
++++ b/qcom_ptool/ptool.py
+@@ -1025,6 +1025,9 @@ def CreateGPTPartitionTable(PhysicalPartitionNumber, UserProvided=False):
+             Attributes |= 1 << 54
+         if PhyPartition[k][j]["unbootable"] == "true":
+             Attributes |= 1 << 55
++        # Raw attribute bits from --attributes (e.g. ChromeOS/CoreOS gptprio
++        # priority/tries/successful bits 48-56)
++        Attributes |= PhyPartition[k][j].get("attributes", 0)
+ 
+         print("Attributes\t\t0x%X" % Attributes)
+ 
+@@ -2010,6 +2013,7 @@ def ParseXML(XMLFile):
+                 Partition["active"] = "false"
+                 Partition["successful"] = "false"
+                 Partition["unbootable"] = "false"
++                Partition["attributes"] = 0  ## raw GPT attribute bits
+ 
+                 ##import pdb; pdb.set_trace()
+ 
+@@ -2069,6 +2073,8 @@ def ParseXML(XMLFile):
+                         Partition["tries_remaining"] = int(value)
+                     elif name == "priority":
+                         Partition["priority"] = int(value)
++                    elif name == "attributes":
++                        Partition["attributes"] = int(value, 16)
+                     elif name == "size":
+                         if len(value) == 0:
+                             PrintBigError("\nERROR: Invalid partition size")
+-- 
+2.53.0
+

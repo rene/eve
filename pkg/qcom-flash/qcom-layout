@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 Zededa, Inc.
+# SPDX-License-Identifier: Apache-2.0
+"""UFS partition layouts of the QDL flash bundles, in qcom-ptool YAML.
+
+A layout is a resolved, self-contained qcom-ptool board: what
+"qcom-ptool show --platform <platform.yaml>" or
+"qcom-ptool show --board <board.yaml> [--flavor <flavor.yaml>]" prints, i.e.
+one UFS storage whose flat "partitions" list gives every partition its "lun".
+
+Usage:
+  qcom-layout base <name>              read "qcom-ptool show --platform" output
+                                       on stdin, print the layout of its <name>
+                                       configuration (UFS storage only)
+  qcom-layout check <layout>           check a board's layout: one UFS storage,
+                                       no LUN 0 partitions (LUN 0 is EVE's)
+  qcom-layout firmware <layout>        print the layout without LUN 0, in a
+                                       canonical form, to compare layouts
+  qcom-layout merge <layout> <lun0>    print the layout with its LUN 0
+                                       partitions replaced by the <lun0>
+                                       partition list (eve-lun0.yaml)
+"""
+
+import sys
+
+import yaml
+
+
+def fail(msg):
+    print("qcom-layout: ERROR: " + msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def lun(part):
+    return int(part.get("lun", 0))
+
+
+def ufs_storage(doc, where):
+    """Return the only UFS storage of a resolved board document."""
+    if not isinstance(doc, dict) or not isinstance(doc.get("storage"), list):
+        fail("%s: not a qcom-ptool board (no storage list)" % where)
+    ufs = [s for s in doc["storage"] if s.get("type") == "ufs"]
+    if len(ufs) != 1:
+        fail("%s: exactly one UFS storage is required, found %d" % (where, len(ufs)))
+    storage = ufs[0]
+    for key in ("luns", "phys-parts", "includes"):
+        if key in storage:
+            fail("%s: '%s' is not resolved, use the output of qcom-ptool show" % (where, key))
+    if not storage.get("partitions"):
+        fail("%s: no partitions" % where)
+    return storage
+
+
+def load(path):
+    try:
+        with open(path) as f:
+            docs = [d for d in yaml.safe_load_all(f) if d is not None]
+    except (OSError, yaml.YAMLError) as e:
+        fail("%s: %s" % (path, e))
+    if len(docs) != 1:
+        fail("%s: expected one YAML document, found %d" % (path, len(docs)))
+    return docs[0]
+
+
+def dump(doc):
+    yaml.safe_dump(doc, sys.stdout, sort_keys=False, default_flow_style=False)
+
+
+def board(storage):
+    """A self-contained board with this storage and nothing else."""
+    return {"storage": [storage]}
+
+
+def cmd_base(name):
+    docs = [d for d in yaml.safe_load_all(sys.stdin) if d is not None]
+    match = [d for d in docs if d.get("name") == name]
+    if len(match) != 1:
+        fail("no configuration named '%s', found: %s"
+             % (name, ", ".join(str(d.get("name")) for d in docs)))
+    dump(board(ufs_storage(match[0], name)))
+
+
+def cmd_check(path):
+    storage = ufs_storage(load(path), path)
+    lun0 = [p.get("name") for p in storage["partitions"] if lun(p) == 0]
+    if lun0:
+        fail("%s: LUN 0 partitions are not allowed, LUN 0 is EVE's (eve-lun0.yaml): %s"
+             % (path, ", ".join(map(str, lun0))))
+
+
+def cmd_firmware(path):
+    storage = dict(ufs_storage(load(path), path))
+    storage["partitions"] = [p for p in storage["partitions"] if lun(p) != 0]
+    storage.pop("id", None)
+    yaml.safe_dump(storage, sys.stdout, sort_keys=True, default_flow_style=False)
+
+
+def cmd_merge(path, lun0_path):
+    storage = dict(ufs_storage(load(path), path))
+    eve = load(lun0_path).get("partitions")
+    if not eve:
+        fail("%s: no partitions" % lun0_path)
+    for part in eve:
+        if "lun" in part and lun(part) != 0:
+            fail("%s: partition '%s' is not on LUN 0" % (lun0_path, part.get("name")))
+    storage["partitions"] = (
+        [dict(p, lun=0) for p in eve]
+        + [p for p in storage["partitions"] if lun(p) != 0]
+    )
+    dump(board(storage))
+
+
+def main():
+    args = sys.argv[1:]
+    cmds = {"base": (cmd_base, 1), "check": (cmd_check, 1),
+            "firmware": (cmd_firmware, 1), "merge": (cmd_merge, 2)}
+    if not args or args[0] not in cmds or len(args) != cmds[args[0]][1] + 1:
+        print(__doc__, file=sys.stderr)
+        sys.exit(1)
+    cmds[args[0]][0](*args[1:])
+
+
+if __name__ == "__main__":
+    main()
