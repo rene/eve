@@ -212,8 +212,9 @@ BSP_IMX_PART=$(INSTALLER)/bsp-imx
 
 # QDL flash bundle for Qualcomm devices booting from UFS (see pkg/qcom-flash/README.md)
 # QCOM_BOARD: board in pkg/qcom-flash/boards, e.g. iq-9075-evk (IQ9) or iq-8275-evk (IQ8)
-# QCOM_BOARD_DIR: custom board directory outside of EVE's tree (board.conf, grub.cfg,
-#                 dtb/, ...); QCOM_BOARD then defaults to its directory name
+# QCOM_BOARD_DIR: board directory (board.conf, grub.cfg, flash/, partitions/, ...),
+#                 default pkg/qcom-flash/boards/$(QCOM_BOARD); for custom boards, also
+#                 outside of EVE's tree. QCOM_BOARD then defaults to its directory name
 # QCOM_DTB_BIN: optional firmware multi-DTB image for the dtb_a/dtb_b partitions
 QCOM_BOARD_DIR?=
 QCOM_BOARD?=$(if $(QCOM_BOARD_DIR),$(notdir $(abspath $(QCOM_BOARD_DIR))),iq-9075-evk)

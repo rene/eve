@@ -7,12 +7,13 @@
 #
 # At build time this package downloads the Qualcomm boot firmware (NHLOS: XBL,
 # TZ, hypervisor, AOP, UEFI, ...) and the board CDT, at the same versions as
-# the Qualcomm Linux BSP (QLI 2.1, meta-qcom), and generates the GPT/QDL files
-# with qcom-ptool: Qualcomm's layout for the firmware LUNs and EVE's layout
-# for LUN 0 (partitions/eve-lun0.conf).
+# the Qualcomm Linux BSP (QLI 2.1, meta-qcom), and the patched qcom-ptool.
 #
-# At image build time, make-qcomflash adds EVE's partition images (ESP,
-# rootfs, config) and produces the directory to be flashed with qdl.
+# At image build time, make-qcomflash takes a board directory (mounted at
+# /board) and generates the GPT/QDL files with qcom-ptool (the board's or the
+# base's layout for the firmware LUNs, EVE's layout for LUN 0 from
+# partitions/eve-lun0.conf). It adds the board's files and EVE's partition
+# images (ESP, rootfs, config) and produces the directory to flash with qdl.
 
 FROM lfedge/eve-alpine:61283a3a978a7cdc9073a1ba678717fc3ea1fe97 AS build
 ENV BUILD_PKGS="patch python3 unzip"
@@ -45,18 +46,27 @@ WORKDIR /dl
 RUN sha256sum -c downloads.sha256
 
 # Static part of the flash bundles, one directory per Qualcomm reference
-# board ("base"): boot firmware, CDT and partition tables
-COPY partitions/eve-lun0.conf /eve-lun0.conf
-COPY prepare-board.sh verify-gpt.py /
-ENV DL_DIR=/dl PTOOL_DIR=/qcom-ptool LUN0_CONF=/eve-lun0.conf OUT_DIR=/out/qcom-flash/base
+# board ("base"): boot firmware, CDT and the default partition layout
+COPY prepare-base.sh /
+ENV DL_DIR=/dl PTOOL_DIR=/qcom-ptool OUT_DIR=/out/qcom-flash
 WORKDIR /
-RUN /prepare-board.sh iq-8275-evk qcs8300 cdt_qcs8275_iq_8275_evk_pro_sku.bin && \
-    /prepare-board.sh iq-9075-evk qcs9100 cdt_rb8_core_kit.bin
+RUN /prepare-base.sh iq-8275-evk qcs8300 cdt_qcs8275_iq_8275_evk_pro_sku.bin && \
+    /prepare-base.sh iq-9075-evk qcs9100 cdt_rb8_core_kit.bin
 
-# Board definitions (BASE + GRUB settings, device trees, ...) and the common
-# Qualcomm GRUB settings, see README.md
-COPY grub-qcom.cfg /out/qcom-flash/
-COPY boards/ /out/qcom-flash/boards/
+# The GPT is generated when the bundle is made, from the board's partition
+# layout or the base's one, so ship the patched qcom-ptool. Boards are not part
+# of this image (they may hold proprietary files), they are mounted at run time.
+RUN mkdir -p /out/qcom-flash/ptool && \
+    cp -r /qcom-ptool/qcom_ptool /qcom-ptool/LICENSE* /out/qcom-flash/ptool/
+COPY partitions/eve-lun0.conf verify-gpt.py grub-qcom.cfg /out/qcom-flash/
+COPY qcom-gen-gpt qcom-bundle-check /out/usr/bin/
+
+# Sanity check: generate the partition tables of every base
+ENV PTOOL_DIR=/out/qcom-flash/ptool LUN0_CONF=/out/qcom-flash/eve-lun0.conf VERIFY_GPT=/out/qcom-flash/verify-gpt.py
+RUN for l in /out/qcom-flash/layouts/*.conf; do \
+        mkdir -p "/tmp/gpt/$(basename "$l")" && \
+        /out/usr/bin/qcom-gen-gpt "$l" "/tmp/gpt/$(basename "$l")" test; \
+    done && rm -rf /tmp/gpt
 
 COPY make-qcomflash trim-image /out/usr/bin/
 RUN echo "mtools_skip_check=1" >> /out/etc/mtools.conf && \

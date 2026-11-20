@@ -1,0 +1,87 @@
+#!/bin/sh
+# Copyright (c) 2026 Zededa, Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Generate the GPT and QDL files (gpt_*.bin, zeros_*.bin, rawprogram*.xml,
+# patch*.xml) of a Qualcomm UFS device with qcom-ptool: the given layout for
+# LUNs 1-5 and EVE's layout for LUN 0.
+#
+# Usage: qcom-gen-gpt <layout.conf> <output dir> <seed>
+#   layout.conf: qcom-ptool layout, with the --disk line and the partitions
+#                of LUNs 1-5. LUN 0 entries are dropped: LUN 0 is always EVE's
+#   output dir:  where to write the files (must exist)
+#   seed:        qcom-ptool seed for the random GUIDs, so the output is
+#                reproducible
+#
+# Environment:
+#   PTOOL_DIR   qcom-ptool source tree (patched), default /qcom-flash/ptool
+#   LUN0_CONF   EVE LUN 0 layout, default /qcom-flash/eve-lun0.conf
+#   VERIFY_GPT  verify-gpt.py, default /qcom-flash/verify-gpt.py
+#
+set -e
+
+LAYOUT="$1"
+OUT="$2"
+SEED="$3"
+PTOOL_DIR="${PTOOL_DIR:-/qcom-flash/ptool}"
+LUN0_CONF="${LUN0_CONF:-/qcom-flash/eve-lun0.conf}"
+VERIFY_GPT="${VERIFY_GPT:-/qcom-flash/verify-gpt.py}"
+
+if [ -z "$LAYOUT" ] || [ -z "$OUT" ] || [ -z "$SEED" ]; then
+    echo "Usage: $0 <layout.conf> <output dir> <seed>" >&2
+    exit 1
+fi
+[ -f "$LAYOUT" ] || { echo "qcom-gen-gpt: $LAYOUT not found" >&2; exit 1; }
+[ -d "$OUT" ] || { echo "qcom-gen-gpt: $OUT not found" >&2; exit 1; }
+
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+mkdir -p "$WORK/gpt"
+{
+    grep -Ev -- '--lun=0([^0-9]|$)' "$LAYOUT"
+    cat "$LUN0_CONF"
+} > "$WORK/gpt/partitions.conf"
+# The only random values are the disk GUIDs and the unique GUIDs of the
+# partitions without --uniqueguid
+export PTOOL_SEED="$SEED"
+export PYTHONPATH="$PTOOL_DIR"
+if ! python3 -m qcom_ptool.cli gen_partition -i "$WORK/gpt/partitions.conf" \
+        -o "$WORK/gpt/partitions.xml" > "$WORK/gen.log" 2>&1; then
+    cat "$WORK/gen.log" >&2
+    exit 1
+fi
+
+# run_ptool <dir> [ptool options]: generate the GPT/QDL files in <dir>
+run_ptool() {
+    dir="$1"
+    shift
+    mkdir -p "$dir"
+    [ "$dir" = "$WORK/gpt" ] || cp "$WORK/gpt/partitions.xml" "$dir/"
+    if ! (cd "$dir" && python3 -m qcom_ptool.cli ptool -x partitions.xml "$@" > ptool.log 2>&1); then
+        tail -n 40 "$dir/ptool.log" >&2
+        exit 1
+    fi
+}
+
+# LUNs 1-5: as in the Qualcomm Linux BSP
+run_ptool "$WORK/gpt"
+# LUN 0: with 4096-byte sectors qcom-ptool sizes the partition entry array
+# to the number of partitions (32 entries, 4KB), below the 16KB minimum of the
+# UEFI specification, so EVE's GRUB (gptprio.next) rejects it ("invalid GPT
+# entry table size"). Take LUN 0 from a run with the standard 128 entries
+# (16KB, it fits in the 4 sectors reserved for the entries). Same seed, so
+# everything else in LUN 0 is the same.
+run_ptool "$WORK/gpt128" -k 1
+for f in gpt_main0.bin gpt_backup0.bin gpt_both0.bin rawprogram0.xml patch0.xml; do
+    cp "$WORK/gpt128/$f" "$WORK/gpt/$f"
+done
+
+python3 "$VERIFY_GPT" "$LUN0_CONF" "$WORK/gpt/gpt_main0.bin" "$WORK/gpt/gpt_backup0.bin"
+
+for f in "$WORK"/gpt/gpt_main[0-9].bin "$WORK"/gpt/gpt_backup[0-9].bin \
+         "$WORK"/gpt/gpt_both[0-9].bin "$WORK"/gpt/zeros_*.bin \
+         "$WORK"/gpt/rawprogram[0-9].xml "$WORK"/gpt/patch[0-9].xml \
+         "$WORK"/gpt/partitions.conf "$WORK"/gpt/partitions.xml; do
+    cp "$f" "$OUT/"
+done

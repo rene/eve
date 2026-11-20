@@ -2,35 +2,42 @@
 # Copyright (c) 2026 Zededa, Inc.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Assemble a QDL flash bundle for a Qualcomm UFS device: boot firmware, CDT and
-# partition tables shipped in this image (see prepare-board.sh), plus EVE's own
-# partition images built from the inputs in /parts.
+# Assemble a QDL flash bundle for a Qualcomm UFS device: the boot firmware and
+# CDT of a Qualcomm reference board ("base", see prepare-base.sh), the board's
+# own files on top of them, the GPT/QDL files generated with qcom-ptool, and
+# EVE's own partition images built from the inputs in /parts.
 #
 # Usage: make-qcomflash <board> [output dir]
 #
-# Board: a directory with (see README.md):
-#   board.conf     BASE=<base>: Qualcomm firmware/CDT/partitions to use, one of
-#                  /qcom-flash/base/* (mandatory)
+# Board: a directory (BOARD_DIR, default /board) with (see README.md):
+#   board.conf     BASE=<base>: Qualcomm firmware/CDT/partition layout to start
+#                  from, one of /qcom-flash/base/* (mandatory)
 #   grub.cfg       board GRUB settings (optional)
 #   grub-qcom.cfg  replaces the common /qcom-flash/grub-qcom.cfg (optional)
 #   dtb/           device trees, copied to the ESP's /dtb (optional)
-#   cdt.bin        replaces the base's CDT (optional)
-#   dtb.bin        firmware multi-DTB image for dtb_a/dtb_b (optional)
-# It is /qcom-flash/boards/<board>, or the directory in BOARD_DIR (custom
-# boards kept outside of EVE's tree).
+#   partitions/partitions.conf
+#                  qcom-ptool layout for LUNs 1-5 (with the --disk line),
+#                  replaces the base's one. LUN 0 is always EVE's (optional)
+#   flash/         files copied into the bundle over the base's ones: same
+#                  path replaces, otherwise added (optional)
 #
 # Inputs (/parts, the same directory used by mkimage-raw-efi):
-#   EFI/        GRUB EFI binaries (mandatory)
-#   boot/       extra files for the ESP root (optional)
-#   rootfs.img  EVE rootfs, written to IMGA (mandatory)
-#   config.img  CONFIG partition contents, FAT image (mandatory)
-#   dtb.bin     multi-DTB FIT VFAT image for the dtb_a/dtb_b partitions
-#               (optional, overrides the board's one; when there is none,
-#               those partitions are not written). The DTB_BIN environment
-#               variable can point to another path.
+#   EFI/         GRUB EFI binaries (mandatory)
+#   boot/        extra files for the ESP root (optional)
+#   rootfs.img   EVE rootfs, written to IMGA (mandatory)
+#   config.img   CONFIG partition contents, FAT image (mandatory)
+#   eve_version  EVE version, recorded in board.info (optional)
+#   dtb.bin      multi-DTB FIT VFAT image for the dtb_a/dtb_b partitions
+#                (optional, overrides the board's one; when there is none,
+#                those partitions are not written). The DTB_BIN environment
+#                variable can point to another path.
 #
 # The output directory (default /out) is flashed with:
 #   qdl --storage ufs prog_firehose_ddr.elf rawprogram*.xml patch*.xml
+#
+# Builds with board data that differ from the base (flash/ files, partition
+# layout, dtb.bin) are flagged as custom in /EFI/BOOT/board.info on the ESP and
+# in bundle-manifest.txt/.json in the bundle.
 #
 set -e
 
@@ -39,9 +46,9 @@ OUT="${2:-/out}"
 PARTS=/parts
 DTB_BIN="${DTB_BIN:-$PARTS/dtb.bin}"
 FLASH_DIR=/qcom-flash
-BOARD_DIR="${BOARD_DIR:-$FLASH_DIR/boards/$BOARD}"
+BOARD_DIR="${BOARD_DIR:-/board}"
 SECTOR=4096
-# Sizes of EVE's FAT partitions in KB, they must match partitions/eve-lun0.conf
+# Sizes of EVE's FAT partitions in KB, they must match eve-lun0.conf
 EFI_PART_KB=2097152
 CONF_PART_KB=5120
 
@@ -56,8 +63,7 @@ list_dirs() {
 
 if [ -z "$BOARD" ] || [ ! -f "$BOARD_DIR/board.conf" ]; then
     echo "Usage: $0 <board> [output dir]" >&2
-    [ -n "$BOARD" ] && echo "No board.conf in $BOARD_DIR" >&2
-    echo "Available boards: $(list_dirs "$FLASH_DIR/boards")" >&2
+    [ -n "$BOARD" ] && echo "No board.conf in $BOARD_DIR (mount the board directory there)" >&2
     exit 1
 fi
 # board.conf is parsed, not sourced: only BASE=<name> is used
@@ -91,19 +97,121 @@ mkvfat() {
     trim-image "$1" "$SECTOR"
 }
 
+# Partition layout without comments and blank lines, to compare layouts
+normalize_conf() {
+    sed -e 's/#.*//' -e 's/[[:space:]]\+/ /g' -e 's/^ //' -e 's/ $//' "$1" | grep -v '^$' || true
+}
+
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+ORIGINS="$WORK/origins"
+: > "$ORIGINS"
+# origin <origin> <path in the bundle>...
+origin() {
+    o="$1"
+    shift
+    for p in "$@"; do printf '%s\t%s\n' "$o" "$p" >> "$ORIGINS"; done
+}
+
 # Start from a clean output, keep the directory itself (it may be a mount point)
 find "$OUT" -mindepth 1 -delete
 
 echo "make-qcomflash: board $BOARD ($BOARD_DIR), base $BASE"
+CUSTOM_REASONS=""
+
+### Partition tables: the board's layout or the base's one for LUNs 1-5,
+### EVE's for LUN 0
+LAYOUT="$FLASH_DIR/layouts/$BASE.conf"
+LAYOUT_SRC=base
+SEED="eve-$BASE"
+if [ -f "$BOARD_DIR/partitions/partitions.conf" ]; then
+    LAYOUT="$BOARD_DIR/partitions/partitions.conf"
+    if grep -Eq -- '^[[:space:]]*--partition.*--lun=0([^0-9]|$)' "$LAYOUT"; then
+        bail "$LAYOUT: LUN 0 partitions are not allowed, LUN 0 is EVE's (eve-lun0.conf)"
+    fi
+    [ "$(grep -Ec -- '^[[:space:]]*--disk' "$LAYOUT")" = 1 ] || \
+        bail "$LAYOUT: exactly one --disk line is required"
+    normalize_conf "$LAYOUT" > "$WORK/layout.board"
+    grep -Ev -- '--lun=0([^0-9]|$)' "$FLASH_DIR/layouts/$BASE.conf" > "$WORK/layout.base.raw"
+    normalize_conf "$WORK/layout.base.raw" > "$WORK/layout.base"
+    if cmp -s "$WORK/layout.board" "$WORK/layout.base"; then
+        echo "make-qcomflash: the board's partition layout is the same as the base's"
+    else
+        echo "make-qcomflash: using the board's partition layout"
+        LAYOUT_SRC=board
+        SEED="eve-$BOARD"
+        CUSTOM_REASONS="$CUSTOM_REASONS layout"
+    fi
+fi
+mkdir -p "$WORK/gpt"
+qcom-gen-gpt "$LAYOUT" "$WORK/gpt" "$SEED"
+
+### Firmware: the base's files, then the board's flash/ over them
 cp -a "$FLASH_DIR/base/$BASE/." "$OUT/"
-if [ -f "$BOARD_DIR/cdt.bin" ]; then
-    echo "make-qcomflash: using the board's cdt.bin"
-    cp "$BOARD_DIR/cdt.bin" "$OUT/cdt.bin"
+(cd "$OUT" && find . -type f | sed 's#^\./##') | while read -r f; do origin base "$f"; done
+REPLACED=""
+ADDED=""
+if [ -d "$BOARD_DIR/flash" ]; then
+    (cd "$BOARD_DIR/flash" && find . -type f | sed 's#^\./##' | LC_ALL=C sort) > "$WORK/flash.list"
+    while read -r f; do
+        if [ -f "$OUT/$f" ]; then
+            if cmp -s "$BOARD_DIR/flash/$f" "$OUT/$f"; then
+                continue
+            fi
+            REPLACED="$REPLACED $f"
+            origin board-replaced "$f"
+        else
+            ADDED="$ADDED $f"
+            origin board-added "$f"
+        fi
+        mkdir -p "$OUT/$(dirname "$f")"
+        cp "$BOARD_DIR/flash/$f" "$OUT/$f"
+    done < "$WORK/flash.list"
+    [ -z "$REPLACED" ] || echo "make-qcomflash: board files replacing the base's:$REPLACED"
+    [ -z "$ADDED" ] || echo "make-qcomflash: board files added:$ADDED"
+    [ -z "$REPLACED$ADDED" ] || CUSTOM_REASONS="$CUSTOM_REASONS flash"
+fi
+cp "$WORK"/gpt/* "$OUT/"
+
+### dtb_a/dtb_b: firmware device tree (multi-DTB FIT), optional
+DTB_SRC=none
+if [ -f "$DTB_BIN" ]; then
+    echo "make-qcomflash: using dtb.bin from $DTB_BIN"
+    cp "$DTB_BIN" "$OUT/dtb.bin"
+    origin override dtb.bin
+    DTB_SRC=override
+    CUSTOM_REASONS="$CUSTOM_REASONS dtb"
+elif [ -f "$OUT/dtb.bin" ]; then
+    DTB_SRC=board
+elif grep -q 'filename="dtb.bin"' "$OUT"/rawprogram[0-9].xml; then
+    echo "make-qcomflash: no dtb.bin provided, dtb_a/dtb_b will not be written"
+    sed -i 's/filename="dtb.bin"/filename=""/' "$OUT"/rawprogram[0-9].xml
 fi
 
+### Build identification, written to the ESP (/EFI/BOOT/board.info) and to
+### the bundle manifest. The board ID covers every file of the board directory.
+BOARD_ID=$(cd "$BOARD_DIR" && find . -type f -print0 | LC_ALL=C sort -z | \
+    xargs -0 -r sha256sum | sha256sum | cut -d ' ' -f 1)
+CUSTOM=no
+[ -z "$CUSTOM_REASONS" ] || CUSTOM=yes
+EVE_VERSION=""
+[ -f "$PARTS/eve_version" ] && EVE_VERSION=$(head -n 1 "$PARTS/eve_version")
+{
+    echo "# Generated by make-qcomflash"
+    echo "board=$BOARD"
+    echo "base=$BASE"
+    echo "board_id=$BOARD_ID"
+    echo "custom=$CUSTOM"
+    echo "custom_reasons=${CUSTOM_REASONS# }"
+    echo "layout=$LAYOUT_SRC"
+    echo "flash_replaced=${REPLACED# }"
+    echo "flash_added=${ADDED# }"
+    echo "dtb=$DTB_SRC"
+    echo "eve_version=$EVE_VERSION"
+} > "$WORK/board.info"
+echo "make-qcomflash: board ID $BOARD_ID, custom: $CUSTOM${CUSTOM_REASONS:+ (${CUSTOM_REASONS# })}"
+
 ### ESP ("efi", partition 1): same content as make-raw's do_efi()
-WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/efifs"
 cp -Lr "$PARTS/EFI" "$WORK/efifs/EFI"
 grub_efi=$(cd "$WORK/efifs" && echo EFI/BOOT/BOOT*EFI)
@@ -140,6 +248,7 @@ grub_qcom="$FLASH_DIR/grub-qcom.cfg"
         cat "$BOARD_DIR/grub.cfg"
     fi
 } > "$WORK/efifs/EFI/BOOT/grub-hv.cfg"
+cp "$WORK/board.info" "$WORK/efifs/EFI/BOOT/board.info"
 if [ -d "$BOARD_DIR/dtb" ]; then
     mkdir -p "$WORK/efifs/dtb"
     cp -r "$BOARD_DIR/dtb"/. "$WORK/efifs/dtb/"
@@ -159,21 +268,10 @@ mkvfat "$OUT/config.img" "$CONF_PART_KB" EVE "$WORK/config"
 
 ### IMGA: EVE rootfs (squashfs/ext4, sector size agnostic)
 cp "$PARTS/rootfs.img" "$OUT/rootfs.img"
+origin eve efi.img efi_b.img config.img rootfs.img
 
-### dtb_a/dtb_b: firmware device tree (multi-DTB FIT), optional
-if [ -f "$DTB_BIN" ]; then
-    cp "$DTB_BIN" "$OUT/dtb.bin"
-elif [ -f "$BOARD_DIR/dtb.bin" ]; then
-    echo "make-qcomflash: using the board's dtb.bin"
-    cp "$BOARD_DIR/dtb.bin" "$OUT/dtb.bin"
-else
-    echo "make-qcomflash: no dtb.bin provided, dtb_a/dtb_b will not be written"
-    sed -i 's/filename="dtb.bin"/filename=""/' "$OUT"/rawprogram[0-9].xml
-fi
-
-# Every file referenced by the rawprogram files must be in the bundle
-missing=$(sed -n 's/.*filename="\([^"]\+\)".*/\1/p' "$OUT"/rawprogram[0-9].xml | sort -u | \
-    while read -r f; do [ -f "$OUT/$f" ] || printf ' %s' "$f"; done)
-[ -z "$missing" ] || bail "files referenced by rawprogram*.xml are missing:$missing"
+### Final checks (referenced files, sizes, unused files) and manifest
+qcom-bundle-check "$OUT" "$ORIGINS" "$WORK/board.info" || \
+    bail "invalid flash bundle, see the errors above"
 
 echo "make-qcomflash: flash bundle ready in $OUT"
