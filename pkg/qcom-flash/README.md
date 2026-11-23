@@ -45,6 +45,7 @@ A board is a directory, [boards/](boards) has the Qualcomm reference ones:
 | `grub-qcom.cfg`              | optional  | replaces the common [grub-qcom.cfg](grub-qcom.cfg)   |
 | `dtb/`                       | optional  | device trees (or any file), copied to `/dtb` in the ESP |
 | `partitions/partitions.conf` | optional  | UFS layout of LUNs 1-5 (qcom-ptool format), replaces the base's one, see [Custom firmware and partitions](#custom-firmware-and-partitions) |
+| `firmware/`                  | optional  | files for `/lib/firmware` on the device, see [Board firmware for /lib/firmware](#board-firmware-for-libfirmware) |
 | `flash/`                     | optional  | files copied into the bundle over the base's ones (`xbl.elf`, `cdt.bin`, `dtb.bin`, `mfg.bin`, ...) |
 
 Boards are not part of the `qcom-flash` image: the board directory is mounted
@@ -155,11 +156,39 @@ the bundle is checked before it is considered ready:
   (warning), except the programmers (`prog_*`), licenses, `sail_nor/` and the
   partition table files
 
+### Board firmware for /lib/firmware
+
+Third party firmware loaded by Linux drivers (Wi-Fi, Bluetooth, remote
+processors, ...) goes to the board's `firmware/` directory, with the same
+layout as `/lib/firmware` (e.g. `firmware/ath11k/WCN6855/hw2.1/board-2.bin`).
+It can't go into the rootfs: the rootfs is the same for every board, and EVE
+updates replace it.
+
+`make-qcomflash` packs `firmware/` into a squashfs image, `/firmware.sqfs` in
+the ESP, which EVE updates don't touch. On every boot, before udev loads the
+drivers, `007-qcom-board-fw` (in [pkg/qti](../qti)) mounts it read-only and
+merges it over the rootfs' `/lib/firmware` with an overlay: a board file with
+the same path as one of EVE's replaces it, the others are added. The image is
+needed because FAT can't be an overlayfs layer.
+
+Things to keep in mind:
+
+* A board file keeps replacing EVE's one after EVE updates, even when an
+  update brings a newer version. `make-qcomflash` lists the files that
+  replace EVE's ones (when the rootfs is a squashfs image).
+* Drivers built into the kernel that load their firmware before userspace
+  starts don't see the board's files (that needs `CONFIG_EXTRA_FIRMWARE`).
+* Like the device trees in the ESP, these files are not covered by the rootfs
+  verification, and keeping them compatible with the EVE kernels the device
+  will run is up to the board integrator.
+
+The bundle lists the files and their checksums in `bundle-firmware.txt`.
+
 ### Identifying custom builds
 
 The build is flagged as custom when the board's `flash/` files differ from or
 are added to the base's ones, when its partition layout differs from the
-base's one, or when `QCOM_DTB_BIN` is used. The reference boards are never
+base's one, when it has `firmware/` files, or when `QCOM_DTB_BIN` is used. The reference boards are never
 custom. This is recorded, with a board ID (the sha256 of all the files of the
 board directory, names and contents), in:
 
@@ -176,6 +205,8 @@ board directory, names and contents), in:
   flash_replaced=cdt.bin xbl.elf
   flash_added=mfg.bin
   dtb=board
+  firmware_files=0
+  firmware_sha256=
   eve_version=...
   ```
 
@@ -222,7 +253,7 @@ the board directory:
 
 | File         | Partition    | Content                                         |
 |--------------|--------------|-------------------------------------------------|
-| `efi.img`    | efi          | ESP: GRUB, grub.cfg selecting IMGA/IMGB, the board's grub-hv.cfg and dtb/ |
+| `efi.img`    | efi          | ESP: GRUB, grub.cfg selecting IMGA/IMGB, the board's grub-hv.cfg, dtb/ and firmware.sqfs |
 | `rootfs.img` | IMGA         | EVE rootfs                                      |
 | `config.img` | CONFIG       | EVE config partition                            |
 | `efi_b.img`  | EFI System B | reserved ESP-B, empty FAT                       |

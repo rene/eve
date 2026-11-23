@@ -34,7 +34,7 @@ MANIFEST_JSON = "bundle-manifest.json"
 # Files that are in the bundle on purpose but not referenced by rawprogram
 NOT_FLASHED = [
     "prog_*", "LICENSE*", "sail_nor/*", "partitions.*", "zeros_*",
-    "gpt_both*", "rawprogram*.xml", "patch*.xml", MANIFEST_TXT, MANIFEST_JSON,
+    "gpt_both*", "rawprogram*.xml", "patch*.xml", "bundle-*",
 ]
 
 

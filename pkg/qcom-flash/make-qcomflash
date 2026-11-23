@@ -18,6 +18,9 @@
 #   partitions/partitions.conf
 #                  qcom-ptool layout for LUNs 1-5 (with the --disk line),
 #                  replaces the base's one. LUN 0 is always EVE's (optional)
+#   firmware/      files for /lib/firmware on the device, same layout. Stored
+#                  in the ESP as /firmware.sqfs and merged over the rootfs'
+#                  /lib/firmware at boot (pkg/qti 007-qcom-board-fw) (optional)
 #   flash/         files copied into the bundle over the base's ones: same
 #                  path replaces, otherwise added (optional)
 #
@@ -36,7 +39,7 @@
 #   qdl --storage ufs prog_firehose_ddr.elf rawprogram*.xml patch*.xml
 #
 # Builds with board data that differ from the base (flash/ files, partition
-# layout, dtb.bin) are flagged as custom in /EFI/BOOT/board.info on the ESP and
+# layout, dtb.bin, firmware/) are flagged as custom in /EFI/BOOT/board.info on the ESP and
 # in bundle-manifest.txt/.json in the bundle.
 #
 set -e
@@ -188,6 +191,30 @@ elif grep -q 'filename="dtb.bin"' "$OUT"/rawprogram[0-9].xml; then
     sed -i 's/filename="dtb.bin"/filename=""/' "$OUT"/rawprogram[0-9].xml
 fi
 
+### Board firmware for /lib/firmware: squashfs image in the ESP (FAT can't be
+### an overlayfs layer)
+FW_FILES=0
+FW_SHA=""
+if [ -d "$BOARD_DIR/firmware" ] && [ -n "$(find "$BOARD_DIR/firmware" -type f)" ]; then
+    FW_FILES=$(find "$BOARD_DIR/firmware" -type f | wc -l)
+    mksquashfs "$BOARD_DIR/firmware" "$WORK/firmware.sqfs" -comp xz -noappend \
+        -all-root -no-xattrs -mkfs-time 0 -all-time 0 -quiet > /dev/null
+    FW_SHA=$(sha256sum "$WORK/firmware.sqfs" | cut -d ' ' -f 1)
+    (cd "$BOARD_DIR/firmware" && find . -type f -print0 | LC_ALL=C sort -z | \
+        xargs -0 -r sha256sum | sed 's#  \./#  #') > "$OUT/bundle-firmware.txt"
+    echo "make-qcomflash: $FW_FILES board firmware file(s) for /lib/firmware"
+    # Board files shadow the rootfs' ones, also after EVE updates
+    if [ "$(head -c 4 "$PARTS/rootfs.img")" = hsqs ]; then
+        unsquashfs -l -d "" "$PARTS/rootfs.img" lib/firmware 2>/dev/null | \
+            sed -n 's#^/lib/firmware/##p' | LC_ALL=C sort > "$WORK/rootfs-fw.list"
+        (cd "$BOARD_DIR/firmware" && find . -type f | sed 's#^\./##' | LC_ALL=C sort) | \
+            comm -12 - "$WORK/rootfs-fw.list" | while read -r f; do
+                echo "make-qcomflash: board firmware overrides EVE's /lib/firmware/$f"
+            done
+    fi
+    CUSTOM_REASONS="$CUSTOM_REASONS firmware"
+fi
+
 ### Build identification, written to the ESP (/EFI/BOOT/board.info) and to
 ### the bundle manifest. The board ID covers every file of the board directory.
 BOARD_ID=$(cd "$BOARD_DIR" && find . -type f -print0 | LC_ALL=C sort -z | \
@@ -207,6 +234,8 @@ EVE_VERSION=""
     echo "flash_replaced=${REPLACED# }"
     echo "flash_added=${ADDED# }"
     echo "dtb=$DTB_SRC"
+    echo "firmware_files=$FW_FILES"
+    echo "firmware_sha256=$FW_SHA"
     echo "eve_version=$EVE_VERSION"
 } > "$WORK/board.info"
 echo "make-qcomflash: board ID $BOARD_ID, custom: $CUSTOM${CUSTOM_REASONS:+ (${CUSTOM_REASONS# })}"
@@ -249,6 +278,7 @@ grub_qcom="$FLASH_DIR/grub-qcom.cfg"
     fi
 } > "$WORK/efifs/EFI/BOOT/grub-hv.cfg"
 cp "$WORK/board.info" "$WORK/efifs/EFI/BOOT/board.info"
+[ ! -f "$WORK/firmware.sqfs" ] || cp "$WORK/firmware.sqfs" "$WORK/efifs/firmware.sqfs"
 if [ -d "$BOARD_DIR/dtb" ]; then
     mkdir -p "$WORK/efifs/dtb"
     cp -r "$BOARD_DIR/dtb"/. "$WORK/efifs/dtb/"

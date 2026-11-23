@@ -17,7 +17,7 @@
 
 FROM lfedge/eve-alpine:61283a3a978a7cdc9073a1ba678717fc3ea1fe97 AS build
 ENV BUILD_PKGS="patch python3 unzip"
-ENV PKGS="coreutils dosfstools mtools python3"
+ENV PKGS="coreutils dosfstools mtools python3 squashfs-tools"
 RUN eve-alpine-deploy.sh
 
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
