@@ -142,8 +142,70 @@ RUN dangling=$(find -L "${DSP_DIR}" -type l) && \
     find "${DSP_DIR}" -maxdepth 5 \( -type d -o -type l \) | sort && \
     du -shL "${DSP_DIR}"
 
+# FastRPC client libraries for edge app containers, which run on glibc
+# (Debian, Ubuntu, ...) and can't load the musl ones above: the same fastrpc
+# version, from Debian (trixie-backports), with the libraries it needs. The
+# qualcomm.com/dsp CDI devices (qcom-dsp-cdi) mount them in
+# /usr/lib/aarch64-linux-gnu, so they need glibc >= 2.38 in the container.
+# Pinned on snapshot.debian.org, which keeps every package version. Only arm64
+# devices use them, other architectures get nothing.
+FROM lfedge/eve-alpine:edcb4dbc2f973b82676381a236165ce924149f2d AS fastrpc-glibc-arm64
+ENV BUILD_PKGS="dpkg xz"
+RUN eve-alpine-deploy.sh
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+ENV DEBIAN_SNAPSHOT=https://snapshot.debian.org/archive/debian/20261120T000000Z
+ADD ${DEBIAN_SNAPSHOT}/pool/contrib/f/fastrpc/libfastrpc1_1.0.7-2~bpo13+1_arm64.deb \
+    ${DEBIAN_SNAPSHOT}/pool/main/liby/libyaml/libyaml-0-2_0.2.5-2_arm64.deb \
+    ${DEBIAN_SNAPSHOT}/pool/main/libb/libbsd/libbsd0_0.12.2-2_arm64.deb \
+    ${DEBIAN_SNAPSHOT}/pool/main/libm/libmd/libmd0_1.1.0-2+b1_arm64.deb \
+    /debs/
+WORKDIR /debs
+ENV OUT=/glibc-out/opt/vendor/qcom/glibc
+# Each library is installed under its soname, with its Debian copyright file.
+# The default listeners are left out: only the FastRPC daemons use them.
+RUN printf '%s  %s\n' \
+        35df085e1abb15abfba103c9947d86a686fb530c3d383a7f5e10834d51a1df26 'libfastrpc1_1.0.7-2~bpo13+1_arm64.deb' \
+        c81500b4c93e29ac28cdded7ec5bf9950c75f8c76c386669ccb6fb854c4daf72 libyaml-0-2_0.2.5-2_arm64.deb \
+        6827c1b3ad8dcbf3478803f9150359433e3376a3bde01c4503888a22eb3924e3 libbsd0_0.12.2-2_arm64.deb \
+        772e86842fd3fa1816a0cfee4833a73996aaa550461491543b886b9c8f999052 'libmd0_1.1.0-2+b1_arm64.deb' | \
+        sha256sum -c
+# A plain loop (not in an && list), so that any failing command stops the build
+RUN mkdir -p "${OUT}/lib" /sbom-out /x ; \
+    for deb in *.deb; do \
+        pkg=$(dpkg-deb -f "$deb" Package) ; \
+        dpkg-deb -x "$deb" "/x/$pkg" ; \
+        install -m 0644 "/x/$pkg/usr/share/doc/$pkg/copyright" "${OUT}/LICENSE.$pkg" ; \
+        find "/x/$pkg/usr/lib/aarch64-linux-gnu" -type l -name 'lib*.so.[0-9]*' ! -name '*_default_listener*' | \
+            while read -r l; do install -m 0644 "$(readlink -f "$l")" "${OUT}/lib/${l##*/}"; done ; \
+        case "$pkg" in \
+            libfastrpc1) lic="BSD-3-Clause AND BSD-1-Clause" ;; \
+            libyaml-0-2) lic="MIT" ;; \
+            libbsd0) lic="BSD-3-Clause AND BSD-2-Clause AND ISC AND MIT AND Beerware AND LicenseRef-Public-Domain" ;; \
+            libmd0) lic="BSD-3-Clause AND BSD-2-Clause AND ISC AND Beerware AND LicenseRef-Public-Domain" ;; \
+            *) echo "no license for $pkg" >&2 ; exit 1 ;; \
+        esac ; \
+        src=$(dpkg-deb -f "$deb" Source | cut -d ' ' -f 1) ; \
+        register-sbom-pkg.sh -n "$pkg" -v "$(dpkg-deb -f "$deb" Version)" -l "$lic" \
+            -u "https://tracker.debian.org/pkg/${src:-$pkg}" -o /sbom-out ; \
+    done ; \
+    rm -rf /x ; \
+    for l in libadsprpc.so.1 libcdsprpc.so.1 libsdsprpc.so.1 libyaml-0.so.2 libbsd.so.0 libmd.so.0; do \
+        [ -f "${OUT}/lib/$l" ] || { echo "$l missing" >&2 ; exit 1 ; } ; \
+    done ; \
+    ls -l "${OUT}" "${OUT}/lib"
+
+FROM lfedge/eve-alpine:edcb4dbc2f973b82676381a236165ce924149f2d AS fastrpc-glibc-amd64
+RUN mkdir -p /glibc-out /sbom-out/lib/apk/db && touch /sbom-out/lib/apk/db/installed
+
+FROM fastrpc-glibc-amd64 AS fastrpc-glibc-riscv64
+
+# hadolint ignore=DL3006
+FROM fastrpc-glibc-${TARGETARCH} AS fastrpc-glibc
+
 FROM scratch
 # hadolint ignore=DL3020
 ADD rootfs/ /
 COPY --from=build /qti-out/ /
 COPY --from=dsp-binaries /dsp-out/ /
+COPY --from=fastrpc-glibc /glibc-out/ /
+COPY --from=fastrpc-glibc /sbom-out/lib/apk/db/installed /lib/apk/db/installed

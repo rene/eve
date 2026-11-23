@@ -49,5 +49,10 @@ start_on_dev "/dev/fastrpc-gdsp0 /dev/fastrpc-gdsp0-secure" /opt/vendor/qcom/bin
 start_on_dev "/dev/fastrpc-gdsp1 /dev/fastrpc-gdsp1-secure" /opt/vendor/qcom/bin/gdsprpcd rootpd gdsp1
 start_on_dev "/dev/fastrpc-sdsp /dev/fastrpc-sdsp-secure" /opt/vendor/qcom/bin/sdsprpcd
 
+# CDI spec for edge apps (qualcomm.com/dsp), updated as the DSPs come up.
+# /run/cdi must exist before pillar starts, so its CDI registry watches it.
+mkdir -p /run/cdi
+/opt/vendor/qcom/bin/qcom-dsp-cdi "$DEV_WAIT_TIMEOUT" &
+
 # Trigger udev again after load everything
 udevadm trigger

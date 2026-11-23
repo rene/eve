@@ -255,6 +255,23 @@ containers can access the GPU on a Jetson Xavier platform through the following 
 }
 ```
 
+On Qualcomm platforms (`PLATFORM=qcom-qli`), the Hexagon DSPs are exposed in the same way, with the CDI kind
+`qualcomm.com/dsp` and one device per DSP (`adsp`, `cdsp`, `cdsp1`, `gdsp0`, ..., and `all`), see
+[pkg/qti/README.md](../pkg/qti/README.md). For instance, the compute DSP:
+
+```json
+{
+    "ztype": 7,
+    "phylabel": "CDSP",
+    "assigngrp": "group11",
+    "logicallabel": "CDSP",
+    "usagePolicy": {},
+    "cbattr": {
+        "cdi" : "qualcomm.com/dsp=cdsp"
+    }
+}
+```
+
 Notice that the CDI mechanism is available only for container Edge Applications running through the __HV_NOHYPER__
 virtualization mode (bare metal). Since it's intend to be used for GPU direct access, only I/O adapters of type HDMI can
 use the CDI string in the device model. Serial devices can also be exposed to bare metal containers in the same way done
