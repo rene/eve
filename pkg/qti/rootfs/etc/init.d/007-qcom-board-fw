@@ -1,0 +1,66 @@
+#!/bin/sh
+# Copyright (c) 2026 Zededa, Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Board firmware for Qualcomm IQ devices flashed with pkg/qcom-flash.
+#
+# A board can ship extra or replacement files for /lib/firmware (firmware/ in
+# its board directory). They are stored in the ESP as a squashfs image,
+# /firmware.sqfs, so they survive EVE updates, which only replace the rootfs.
+# Merge them over the rootfs' /lib/firmware with a read-only overlay: board
+# files take precedence, the others are added.
+#
+# This runs before udevd (008-udevd), which loads the drivers that request
+# firmware (remoteproc, Wi-Fi, ...). Drivers built into the kernel that load
+# firmware earlier than this can't see the board's files.
+
+ESP_LABEL=efi
+MNT=/run/qcom-board
+FW_DIR=/lib/firmware
+
+log() {
+    echo "007-qcom-board-fw: $*"
+}
+
+# The ESP is the partition labelled "efi" on the disk holding the rootfs
+# (pkg/qcom-flash/partitions/eve-lun0.conf). Use sysfs only: udev isn't
+# running yet.
+find_esp() {
+    root_dev=$(awk '$5 == "/" { d = $3 } END { print d }' /proc/self/mountinfo)
+    [ -n "$root_dev" ] || return 1
+    root_part=$(readlink -f "/sys/dev/block/$root_dev")
+    [ -f "$root_part/partition" ] || return 1
+    for p in "$(dirname "$root_part")"/*/partition; do
+        p=$(dirname "$p")
+        if grep -qx "PARTNAME=$ESP_LABEL" "$p/uevent" 2>/dev/null; then
+            echo "/dev/$(basename "$p")"
+            return 0
+        fi
+    done
+    return 1
+}
+
+esp=$(find_esp) || { log "ESP not found, nothing to do"; exit 0; }
+
+mkdir -p "$MNT/esp" "$MNT/firmware"
+if ! mount -t vfat -o ro,nodev,nosuid,noexec "$esp" "$MNT/esp"; then
+    log "failed to mount the ESP ($esp)"
+    exit 0
+fi
+if [ ! -f "$MNT/esp/firmware.sqfs" ]; then
+    umount "$MNT/esp"
+    exit 0
+fi
+# The ESP stays mounted (read-only): the squashfs image is read from it
+if ! mount -t squashfs -o loop,ro,nodev,nosuid,noexec "$MNT/esp/firmware.sqfs" "$MNT/firmware"; then
+    log "failed to mount $esp:/firmware.sqfs"
+    umount "$MNT/esp"
+    exit 0
+fi
+if mount -t overlay qcom-board-fw -o "ro,lowerdir=$MNT/firmware:$FW_DIR" "$FW_DIR"; then
+    log "$(find "$MNT/firmware" -type f | wc -l) board firmware file(s) merged into $FW_DIR"
+else
+    log "failed to merge the board firmware into $FW_DIR"
+    umount "$MNT/firmware"
+    umount "$MNT/esp"
+fi
