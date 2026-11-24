@@ -38,7 +38,7 @@ jobs:
   # matrix entry per image, in parallel.
   # ════════════════════════════════════════════════════════════════════════
   publish:
-    if: github.event.repository.full_name == 'lf-edge/eve'
+    if: github.event.repository.full_name == 'rene/eve'
     runs-on: zededa-ubuntu-2204
     timeout-minutes: 240
     strategy:
