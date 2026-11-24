@@ -36,7 +36,7 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════
 
   pkgs-amd64:
-    if: github.event.repository.full_name == 'lf-edge/eve'
+    if: github.event.repository.full_name == 'rene/eve'
     runs-on: zededa-ubuntu-2204
     permissions:
       actions: read
@@ -159,7 +159,7 @@ jobs:
           rm -rf ~/.linuxkit
 
   pkgs-arm64:
-    if: github.event.repository.full_name == 'lf-edge/eve'
+    if: github.event.repository.full_name == 'rene/eve'
     runs-on: zededa-ubuntu-2204-arm64
     permissions:
       actions: read
@@ -284,7 +284,7 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════
 
   eve:
-    if: github.event.repository.full_name == 'lf-edge/eve'
+    if: github.event.repository.full_name == 'rene/eve'
     needs: [pkgs-amd64, pkgs-arm64]
     runs-on: ${{ matrix.os }}
     permissions:
@@ -526,7 +526,7 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════
 
   manifest:
-    if: github.event.repository.full_name == 'lf-edge/eve'
+    if: github.event.repository.full_name == 'rene/eve'
     needs: eve
     runs-on: zededa-ubuntu-2204
     permissions:
@@ -595,7 +595,7 @@ jobs:
   # push them; otherwise a package change is rebuilt here from source. Run
   # even if pkgs-amd64 failed, which may be after its push.
   coverage:
-    if: ${{ !cancelled() && github.event.repository.full_name == 'lf-edge/eve' }}
+    if: ${{ !cancelled() && github.event.repository.full_name == 'rene/eve' }}
     needs: pkgs-amd64
     runs-on: zededa-ubuntu-2204
     timeout-minutes: 1440
@@ -646,7 +646,7 @@ jobs:
   # Merge the per-arch descriptors each eve job pushed into the multi-arch
   # indexes, pushed by digest.
   indexes:
-    if: ${{ (startsWith(github.ref, 'refs/tags/')) && (github.event.repository.full_name == 'lf-edge/eve') }}
+    if: ${{ (startsWith(github.ref, 'refs/tags/')) && (github.event.repository.full_name == 'rene/eve') }}
     needs: eve
     runs-on: zededa-ubuntu-2204
     steps:
@@ -688,7 +688,7 @@ jobs:
   # Builds the release files from the pushed digests into a draft release,
   # which only collaborators can see.
   trigger_assets:
-    if: ${{ (startsWith(github.ref, 'refs/tags/')) && (github.event.repository.full_name == 'lf-edge/eve') }}
+    if: ${{ (startsWith(github.ref, 'refs/tags/')) && (github.event.repository.full_name == 'rene/eve') }}
     needs: [manifest, eve, indexes]
     permissions:
       contents: write
@@ -701,7 +701,7 @@ jobs:
       draft: true
 
   sign:
-    if: ${{ (startsWith(github.ref, 'refs/tags/')) && (github.event.repository.full_name == 'lf-edge/eve') }}
+    if: ${{ (startsWith(github.ref, 'refs/tags/')) && (github.event.repository.full_name == 'rene/eve') }}
     needs: [eve, indexes, trigger_assets]
     permissions:
       contents: read
@@ -713,7 +713,7 @@ jobs:
       registry-password: ${{ secrets.RELEASE_DOCKERHUB_TOKEN }}
 
   tag:
-    if: ${{ (startsWith(github.ref, 'refs/tags/')) && (github.event.repository.full_name == 'lf-edge/eve') }}
+    if: ${{ (startsWith(github.ref, 'refs/tags/')) && (github.event.repository.full_name == 'rene/eve') }}
     needs: sign
     runs-on: zededa-ubuntu-2204
     steps:
@@ -736,7 +736,7 @@ jobs:
           done
 
   release:
-    if: ${{ (startsWith(github.ref, 'refs/tags/')) && (github.event.repository.full_name == 'lf-edge/eve') }}
+    if: ${{ (startsWith(github.ref, 'refs/tags/')) && (github.event.repository.full_name == 'rene/eve') }}
     needs: [trigger_assets, tag]
     runs-on: zededa-ubuntu-2204
     permissions:
