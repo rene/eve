@@ -6,6 +6,7 @@
 // CAN interfaces
 package canbus
 
+// Import files
 import (
 	"bytes"
 	"encoding/binary"
