@@ -4,17 +4,19 @@
 #
 # Build-time helper: prepare a Qualcomm "base" for the QDL flash bundles, i.e.
 # the boot firmware and CDT of a Qualcomm reference board, into
-# $OUT_DIR/base/<base>/, and its default UFS partition layout (qcom-ptool
-# format) into $OUT_DIR/layouts/<base>.conf.
+# $OUT_DIR/base/<base>/, and its default UFS partition layout (resolved
+# qcom-ptool YAML, see qcom-layout) into $OUT_DIR/layouts/<base>.yaml.
 #
 # Usage: prepare-base.sh <base> <soc> <cdt file>
-#   base:     qcom-ptool platform name, e.g. iq-8275-evk
+#   base:     qcom-ptool platform (platforms/<base>.yaml) whose configuration
+#             of the same name is the UFS one, e.g. iq-8275-evk
 #   soc:      boot binaries SoC name, e.g. qcs8300
 #   cdt file: CDT binary inside the CDT zip for this board
 #
 # Environment:
 #   DL_DIR        directory with the downloaded zip files
-#   PTOOL_DIR     qcom-ptool source tree
+#   PTOOL_DIR     qcom-ptool source tree (patched)
+#   QCOM_LAYOUT   qcom-layout, default qcom-layout from $PATH
 #   OUT_DIR       output directory
 #   BOOTBIN_VER   boot binaries version, e.g. 00142
 #
@@ -66,7 +68,10 @@ fi
 unzip -q "$DL_DIR/cdt-${BASE}.zip" -d "$WORK/cdt"
 install -m 0644 "$WORK/cdt/$CDT_FILE" "$DEST/cdt.bin"
 
-### Default partition layout of the base (LUN 0 is replaced by EVE's)
-install -m 0644 "$PTOOL_DIR/platforms/$BASE/ufs/partitions.conf" "$OUT_DIR/layouts/$BASE.conf"
+### Default partition layout of the base (LUN 0 is replaced by EVE's): the
+### platform's configuration named after it is the UFS one (the others, e.g.
+### <base>-emmc, are for other storages)
+PYTHONPATH="$PTOOL_DIR" python3 -m qcom_ptool.cli show --platform "$PTOOL_DIR/platforms/$BASE.yaml" > "$WORK/show.yaml"
+"${QCOM_LAYOUT:-qcom-layout}" base "$BASE" < "$WORK/show.yaml" > "$OUT_DIR/layouts/$BASE.yaml"
 
 echo "$BASE: $(find "$DEST" -type f | wc -l) files"

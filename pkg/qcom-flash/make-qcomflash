@@ -15,9 +15,10 @@
 #   grub.cfg       board GRUB settings (optional)
 #   grub-qcom.cfg  replaces the common /qcom-flash/grub-qcom.cfg (optional)
 #   dtb/           device trees, copied to the ESP's /dtb (optional)
-#   partitions/partitions.conf
-#                  qcom-ptool layout for LUNs 1-5 (with the --disk line),
-#                  replaces the base's one. LUN 0 is always EVE's (optional)
+#   partitions/partitions.yaml
+#                  qcom-ptool layout for LUNs 1-5 (a board with one UFS
+#                  storage, as printed by "qcom-ptool show"), replaces the
+#                  base's one. LUN 0 is always EVE's (optional)
 #   firmware/      files for /lib/firmware on the device, same layout. Stored
 #                  in the ESP as /firmware.sqfs and merged over the rootfs'
 #                  /lib/firmware at boot (pkg/qcom 007-qcom-board-fw) (optional)
@@ -51,7 +52,7 @@ DTB_BIN="${DTB_BIN:-$PARTS/dtb.bin}"
 FLASH_DIR=/qcom-flash
 BOARD_DIR="${BOARD_DIR:-/board}"
 SECTOR=4096
-# Sizes of EVE's FAT partitions in KB, they must match eve-lun0.conf
+# Sizes of EVE's FAT partitions in KB, they must match eve-lun0.yaml
 EFI_PART_KB=2097152
 CONF_PART_KB=5120
 
@@ -100,11 +101,6 @@ mkvfat() {
     trim-image "$1" "$SECTOR"
 }
 
-# Partition layout without comments and blank lines, to compare layouts
-normalize_conf() {
-    sed -e 's/#.*//' -e 's/[[:space:]]\+/ /g' -e 's/^ //' -e 's/ $//' "$1" | grep -v '^$' || true
-}
-
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 ORIGINS="$WORK/origins"
@@ -124,19 +120,22 @@ CUSTOM_REASONS=""
 
 ### Partition tables: the board's layout or the base's one for LUNs 1-5,
 ### EVE's for LUN 0
-LAYOUT="$FLASH_DIR/layouts/$BASE.conf"
+LAYOUT="$FLASH_DIR/layouts/$BASE.yaml"
 LAYOUT_SRC=base
 SEED="eve-$BASE"
-if [ -f "$BOARD_DIR/partitions/partitions.conf" ]; then
-    LAYOUT="$BOARD_DIR/partitions/partitions.conf"
-    if grep -Eq -- '^[[:space:]]*--partition.*--lun=0([^0-9]|$)' "$LAYOUT"; then
-        bail "$LAYOUT: LUN 0 partitions are not allowed, LUN 0 is EVE's (eve-lun0.conf)"
+[ ! -f "$BOARD_DIR/partitions/partitions.conf" ] || \
+    bail "$BOARD_DIR/partitions/partitions.conf: the .conf format is not supported anymore, use partitions/partitions.yaml (see README.md)"
+if [ -f "$BOARD_DIR/partitions/partitions.yaml" ]; then
+    # Resolve it (it may use luns:, includes:, ... relative to itself)
+    if ! PYTHONPATH="$FLASH_DIR/ptool" python3 -m qcom_ptool.cli show \
+            --board "$BOARD_DIR/partitions/partitions.yaml" > "$WORK/layout.yaml" 2> "$WORK/show.log"; then
+        cat "$WORK/show.log" >&2
+        bail "$BOARD_DIR/partitions/partitions.yaml: invalid qcom-ptool layout"
     fi
-    [ "$(grep -Ec -- '^[[:space:]]*--disk' "$LAYOUT")" = 1 ] || \
-        bail "$LAYOUT: exactly one --disk line is required"
-    normalize_conf "$LAYOUT" > "$WORK/layout.board"
-    grep -Ev -- '--lun=0([^0-9]|$)' "$FLASH_DIR/layouts/$BASE.conf" > "$WORK/layout.base.raw"
-    normalize_conf "$WORK/layout.base.raw" > "$WORK/layout.base"
+    LAYOUT="$WORK/layout.yaml"
+    qcom-layout check "$LAYOUT" || bail "$BOARD_DIR/partitions/partitions.yaml: invalid layout"
+    qcom-layout firmware "$LAYOUT" > "$WORK/layout.board"
+    qcom-layout firmware "$FLASH_DIR/layouts/$BASE.yaml" > "$WORK/layout.base"
     if cmp -s "$WORK/layout.board" "$WORK/layout.base"; then
         echo "make-qcomflash: the board's partition layout is the same as the base's"
     else

@@ -7,27 +7,30 @@
 #
 # At build time this package downloads the Qualcomm boot firmware (NHLOS: XBL,
 # TZ, hypervisor, AOP, UEFI, ...) and the board CDT, at the same versions as
-# the Qualcomm Linux BSP (QLI 2.1, meta-qcom), and the patched qcom-ptool.
+# the Qualcomm Linux BSP (QLI 2.1, meta-qcom), and qcom-ptool (with the
+# patches in patches/, see README.md).
 #
 # At image build time, make-qcomflash takes a board directory (mounted at
 # /board) and generates the GPT/QDL files with qcom-ptool (the board's or the
 # base's layout for the firmware LUNs, EVE's layout for LUN 0 from
-# partitions/eve-lun0.conf). It adds the board's files and EVE's partition
+# partitions/eve-lun0.yaml). It adds the board's files and EVE's partition
 # images (ESP, rootfs, config) and produces the directory to flash with qdl.
 
-FROM lfedge/eve-alpine:61283a3a978a7cdc9073a1ba678717fc3ea1fe97 AS build
-ENV BUILD_PKGS="patch python3 unzip"
-ENV PKGS="coreutils dosfstools mtools python3 squashfs-tools"
+FROM lfedge/eve-alpine:ce3d0be803cf6912083f71ec01761123faf9144f AS build
+# qcom-ptool needs PyYAML and jsonschema, at build time (base layouts) and when
+# the bundle is made (GPT generation)
+ENV BUILD_PKGS="patch python3 py3-jsonschema py3-yaml unzip"
+ENV PKGS="coreutils dosfstools mtools python3 py3-jsonschema py3-yaml squashfs-tools"
 RUN eve-alpine-deploy.sh
 
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 
-# qcom-ptool (meta-qcom: recipes-bsp/partition/qcom-ptool.inc)
-ENV QCOM_PTOOL_REV=2dec95bc7bf76efb5dddb392cc3bc241fd272f65
+# qcom-ptool: upstream main, plus patches/ until they are merged upstream
+ENV QCOM_PTOOL_REV=be4c6ad6fd69020052e0a743bc0230e91fa2f91c
 ADD https://github.com/qualcomm-linux/qcom-ptool.git#${QCOM_PTOOL_REV} /qcom-ptool
 COPY patches/ /patches/
 WORKDIR /qcom-ptool
-RUN for p in /patches/*.patch; do patch -p1 < "$p"; done
+RUN for p in /patches/*.patch; do patch -p1 --no-backup-if-mismatch < "$p"; done
 
 # Boot firmware (meta-qcom: firmware-qcom-boot-qcs8300_00142.bb,
 # firmware-qcom-boot-qcs9100_00142.bb) and CDT (firmware-qcom-cdt-qcs8300.bb,
@@ -48,7 +51,8 @@ RUN sha256sum -c downloads.sha256
 # Static part of the flash bundles, one directory per Qualcomm reference
 # board ("base"): boot firmware, CDT and the default partition layout
 COPY prepare-base.sh /
-ENV DL_DIR=/dl PTOOL_DIR=/qcom-ptool OUT_DIR=/out/qcom-flash
+COPY qcom-layout /out/usr/bin/
+ENV DL_DIR=/dl PTOOL_DIR=/qcom-ptool OUT_DIR=/out/qcom-flash QCOM_LAYOUT=/out/usr/bin/qcom-layout
 WORKDIR /
 RUN /prepare-base.sh iq-8275-evk qcs8300 cdt_qcs8275_iq_8275_evk_pro_sku.bin && \
     /prepare-base.sh iq-9075-evk qcs9100 cdt_rb8_core_kit.bin
@@ -58,14 +62,14 @@ RUN /prepare-base.sh iq-8275-evk qcs8300 cdt_qcs8275_iq_8275_evk_pro_sku.bin && 
 # of this image (they may hold proprietary files), they are mounted at run time.
 RUN mkdir -p /out/qcom-flash/ptool && \
     cp -r /qcom-ptool/qcom_ptool /qcom-ptool/LICENSE* /out/qcom-flash/ptool/
-COPY partitions/eve-lun0.conf verify-gpt.py grub-qcom.cfg /out/qcom-flash/
+COPY partitions/eve-lun0.yaml verify-gpt.py grub-qcom.cfg /out/qcom-flash/
 COPY qcom-gen-gpt qcom-bundle-check /out/usr/bin/
 
 # Sanity check: generate the partition tables of every base
-ENV PTOOL_DIR=/out/qcom-flash/ptool LUN0_CONF=/out/qcom-flash/eve-lun0.conf VERIFY_GPT=/out/qcom-flash/verify-gpt.py
-RUN for l in /out/qcom-flash/layouts/*.conf; do \
+ENV PTOOL_DIR=/out/qcom-flash/ptool LUN0_YAML=/out/qcom-flash/eve-lun0.yaml VERIFY_GPT=/out/qcom-flash/verify-gpt.py
+RUN for l in /out/qcom-flash/layouts/*.yaml; do \
         mkdir -p "/tmp/gpt/$(basename "$l")" && \
-        /out/usr/bin/qcom-gen-gpt "$l" "/tmp/gpt/$(basename "$l")" test; \
+        PATH="/out/usr/bin:$PATH" qcom-gen-gpt "$l" "/tmp/gpt/$(basename "$l")" test; \
     done && rm -rf /tmp/gpt
 
 COPY make-qcomflash trim-image /out/usr/bin/

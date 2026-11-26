@@ -3,48 +3,52 @@
 # SPDX-License-Identifier: Apache-2.0
 """Check a qcom-ptool generated LUN 0 GPT against the EVE layout.
 
-Usage: verify-gpt.py <eve-lun0.conf> <gpt_main0.bin> <gpt_backup0.bin>
+Usage: verify-gpt.py <eve-lun0.yaml> <gpt_main0.bin> <gpt_backup0.bin>
 
 Parses the primary GPT (protective MBR + header + entries) and the backup
 partition entries written by qcom-ptool, and checks that every partition of
-the EVE .conf is present in order with the expected label, type GUID, unique
-GUID, size and attributes. This guards the qcom-ptool patch that keeps the
-raw --attributes bits (GRUB gptprio priority/successful bits 49 and 56).
+the EVE layout is present in order with the expected label, type GUID, unique
+GUID, size and attributes. This guards the GRUB gptprio priority/successful
+bits (49 and 56) that qcom-ptool sets on IMGA.
 """
 
-import shlex
 import struct
 import sys
 import uuid
 import zlib
 
+import yaml
+
 SECTOR = 4096
 
 
-def parse_conf(path):
+def _bool(value):
+    return value is True or str(value).lower() == "true"
+
+
+def parse_layout(path):
+    with open(path) as f:
+        nodes = yaml.safe_load(f)["partitions"]
     parts = []
-    with open(path) as conf:
-        for line in conf:
-            line = line.strip()
-            if not line.startswith("--partition"):
-                continue
-            opts = {}
-            for tok in shlex.split(line)[1:]:
-                key, _, val = tok.partition("=")
-                opts[key.lstrip("-")] = val
-            size = opts["size"]
-            assert size.endswith("KB"), size
-            attrs = int(opts.get("attributes", "0"), 16)
-            parts.append({
-                "name": opts["name"],
-                "type": uuid.UUID(opts["type-guid"]),
-                "uuid": uuid.UUID(opts["uniqueguid"]) if "uniqueguid" in opts else None,
-                "size_kb": int(size[:-2]),
-                # bits 2 (bootable) and 60 (readonly) are handled by named
-                # options in qcom-ptool, everything else is kept as-is
-                "attrs": attrs & ~((1 << 2) | (1 << 60)),
-                "readonly": opts.get("readonly", "true") == "true",
-            })
+    for node in nodes:
+        size = str(node["size"])
+        assert size.endswith("KB"), size
+        # bits 2 (bootable) and 60 (readonly) come from the named fields,
+        # everything else of "attributes" is kept as-is
+        attrs = int(str(node.get("attributes", "0")), 16) & ~((1 << 2) | (1 << 60))
+        # GRUB gptprio fields (ChromeOS layout)
+        attrs |= (int(node.get("gptprio-priority", 0)) & 0xF) << 48
+        attrs |= (int(node.get("gptprio-tries-left", 0)) & 0xF) << 52
+        if _bool(node.get("gptprio-successful", False)):
+            attrs |= 1 << 56
+        parts.append({
+            "name": str(node["name"]),
+            "type": uuid.UUID(str(node["type-guid"])),
+            "uuid": uuid.UUID(str(node["unique-guid"])) if "unique-guid" in node else None,
+            "size_kb": int(size[:-2]),
+            "attrs": attrs,
+            "readonly": _bool(node.get("readonly", True)),
+        })
     return parts
 
 
@@ -69,8 +73,8 @@ def fail(msg):
 
 
 def main():
-    conf, main_bin, backup_bin = sys.argv[1:4]
-    expected = parse_conf(conf)
+    layout, main_bin, backup_bin = sys.argv[1:4]
+    expected = parse_layout(layout)
     with open(main_bin, "rb") as f:
         primary = f.read()
     with open(backup_bin, "rb") as f:

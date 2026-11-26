@@ -23,7 +23,7 @@ log() {
 }
 
 # The ESP is the partition labelled "efi" on the disk holding the rootfs
-# (pkg/qcom-flash/partitions/eve-lun0.conf). Use sysfs only: udev isn't
+# (pkg/qcom-flash/partitions/eve-lun0.yaml). Use sysfs only: udev isn't
 # running yet.
 find_esp() {
     root_dev=$(awk '$5 == "/" { d = $3 } END { print d }' /proc/self/mountinfo)
