@@ -11,7 +11,7 @@
 # the kernel (CONFIG_QRTR and CONFIG_QCOM_PD_MAPPER), as in the BSP, so the
 # userspace qrtr-ns and pd-mapper are intentionally not shipped.
 
-FROM lfedge/eve-alpine:edcb4dbc2f973b82676381a236165ce924149f2d AS build
+FROM lfedge/eve-alpine:ce3d0be803cf6912083f71ec01761123faf9144f AS build
 ENV BUILD_PKGS="autoconf automake build-base bsd-compat-headers eudev-dev git glib-dev libbsd-dev libtool linux-headers meson pkgconf yaml-dev zstd-dev"
 RUN eve-alpine-deploy.sh
 
@@ -115,7 +115,7 @@ RUN find "${STAGE}" -type f \( -perm -u+x -o -name '*.so*' \) -exec ldd {} \; 2>
 # FastRPC can't start a CDSP user PD on that board.
 # Separate stage: these are Hexagon (DSP) binaries, nothing to build, and they
 # must not go through the ldd/strip step of the build stage.
-FROM lfedge/eve-alpine:edcb4dbc2f973b82676381a236165ce924149f2d AS dsp-binaries
+FROM lfedge/eve-alpine:ce3d0be803cf6912083f71ec01761123faf9144f AS dsp-binaries
 ENV BUILD_PKGS="coreutils patch"
 RUN eve-alpine-deploy.sh
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
@@ -149,7 +149,7 @@ RUN dangling=$(find -L "${DSP_DIR}" -type l) && \
 # /usr/lib/aarch64-linux-gnu, so they need glibc >= 2.38 in the container.
 # Pinned on snapshot.debian.org, which keeps every package version. Only arm64
 # devices use them, other architectures get nothing.
-FROM lfedge/eve-alpine:edcb4dbc2f973b82676381a236165ce924149f2d AS fastrpc-glibc-arm64
+FROM lfedge/eve-alpine:ce3d0be803cf6912083f71ec01761123faf9144f AS fastrpc-glibc-arm64
 ENV BUILD_PKGS="dpkg xz"
 RUN eve-alpine-deploy.sh
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
@@ -194,7 +194,7 @@ RUN mkdir -p "${OUT}/lib" /sbom-out /x ; \
     done ; \
     ls -l "${OUT}" "${OUT}/lib"
 
-FROM lfedge/eve-alpine:edcb4dbc2f973b82676381a236165ce924149f2d AS fastrpc-glibc-amd64
+FROM lfedge/eve-alpine:ce3d0be803cf6912083f71ec01761123faf9144f AS fastrpc-glibc-amd64
 RUN mkdir -p /glibc-out /sbom-out/lib/apk/db && touch /sbom-out/lib/apk/db/installed
 
 FROM fastrpc-glibc-amd64 AS fastrpc-glibc-riscv64
