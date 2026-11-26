@@ -1,4 +1,4 @@
-# qti
+# qcom
 
 Qualcomm userspace components for the `qcom-qli` platform (Qualcomm Linux
 based devices such as the Dragonwing IQ8 and IQ9), at the versions of the
@@ -11,7 +11,7 @@ Qualcomm Linux BSP (QLI, [meta-qcom](https://github.com/qualcomm-linux/meta-qcom
 | fastrpc client libraries (glibc) for edge apps: Debian's `libfastrpc1` (trixie-backports), `libyaml-0-2`, `libbsd0`, `libmd0` | `/opt/vendor/qcom/glibc` | BSD-3-Clause, MIT, BSD/ISC-style (Debian copyright files in `/opt/vendor/qcom/glibc/LICENSE.*`) |
 | Hexagon DSP libraries and FastRPC shells ([dsp-binaries](https://github.com/linux-msm/dsp-binaries)) | `/opt/vendor/qcom/dsp` | Qualcomm binary-only, redistributable (`LICENSE.qcom`, `LICENSE.qcom-2`) |
 
-The daemons are started by [/etc/init.d/090-qti](rootfs/etc/init.d/090-qti)
+The daemons are started by [/etc/init.d/090-qcom](rootfs/etc/init.d/090-qcom)
 when their device nodes show up.
 
 ## Hexagon DSPs in edge apps (CDI)

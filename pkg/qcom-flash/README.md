@@ -166,7 +166,7 @@ updates replace it.
 
 `make-qcomflash` packs `firmware/` into a squashfs image, `/firmware.sqfs` in
 the ESP, which EVE updates don't touch. On every boot, before udev loads the
-drivers, `007-qcom-board-fw` (in [pkg/qti](../qti)) mounts it read-only and
+drivers, `007-qcom-board-fw` (in [pkg/qcom](../qcom)) mounts it read-only and
 merges it over the rootfs' `/lib/firmware` with an overlay: a board file with
 the same path as one of EVE's replaces it, the others are added. The image is
 needed because FAT can't be an overlayfs layer.

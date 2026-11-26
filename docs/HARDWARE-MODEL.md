@@ -257,7 +257,7 @@ containers can access the GPU on a Jetson Xavier platform through the following 
 
 On Qualcomm platforms (`PLATFORM=qcom-qli`), the Hexagon DSPs are exposed in the same way, with the CDI kind
 `qualcomm.com/dsp` and one device per DSP (`adsp`, `cdsp`, `cdsp1`, `gdsp0`, ..., and `all`), see
-[pkg/qti/README.md](../pkg/qti/README.md). For instance, the compute DSP:
+[pkg/qcom/README.md](../pkg/qcom/README.md). For instance, the compute DSP:
 
 ```json
 {

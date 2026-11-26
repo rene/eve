@@ -3,7 +3,7 @@
 # Copyright (c) 2026 Zededa, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-# Qualcomm userspace components required by QTI platforms (IQ8/IQ9). The
+# Qualcomm userspace components required by Qualcomm platforms (IQ8/IQ9). The
 # versions follow the Qualcomm Linux BSP (QLI 2.1, meta-qcom) recipes, so EVE
 # runs the same userspace as the reference BSP.
 #
@@ -16,7 +16,7 @@ ENV BUILD_PKGS="autoconf automake build-base bsd-compat-headers eudev-dev git gl
 RUN eve-alpine-deploy.sh
 
 # Staging directory: only what is installed here ends up in the final image
-ENV STAGE=/qti-out
+ENV STAGE=/qcom-out
 
 # libqrtr-glib (meta-openembedded: libqrtr-glib_git.bb, 1.2.2+git)
 ENV LIBQRTR_GLIB_REV=8991f0e93713ebf4da48ae4f23940ead42f64c8c
@@ -74,7 +74,7 @@ RUN autoreconf -fi && \
 
 # Drop everything not needed at runtime: headers, pkg-config/libtool files,
 # man pages, systemd units/sysusers and udev rules (EVE has no systemd and the
-# daemons are started by /etc/init.d/090-qti), and fastrpc test tools.
+# daemons are started by /etc/init.d/090-qcom), and fastrpc test tools.
 RUN rm -rf "${STAGE}/usr/include" \
            "${STAGE}/usr/lib/pkgconfig" \
            "${STAGE}/usr/share" \
@@ -205,7 +205,7 @@ FROM fastrpc-glibc-${TARGETARCH} AS fastrpc-glibc
 FROM scratch
 # hadolint ignore=DL3020
 ADD rootfs/ /
-COPY --from=build /qti-out/ /
+COPY --from=build /qcom-out/ /
 COPY --from=dsp-binaries /dsp-out/ /
 COPY --from=fastrpc-glibc /glibc-out/ /
 COPY --from=fastrpc-glibc /sbom-out/lib/apk/db/installed /lib/apk/db/installed

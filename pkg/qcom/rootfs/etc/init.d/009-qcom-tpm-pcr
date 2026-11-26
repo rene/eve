@@ -27,8 +27,8 @@ TPM_WAIT_TIMEOUT=10
 ZERO=0000000000000000000000000000000000000000000000000000000000000000
 
 log() {
-    echo "009-qti-tpm-pcr: $*"
-    echo "009-qti-tpm-pcr: $*" > /dev/kmsg 2>/dev/null
+    echo "009-qcom-tpm-pcr: $*"
+    echo "009-qcom-tpm-pcr: $*" > /dev/kmsg 2>/dev/null
 }
 
 # The SPI TPM may still be probing, give it a few seconds

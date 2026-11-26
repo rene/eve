@@ -20,7 +20,7 @@
 #                  replaces the base's one. LUN 0 is always EVE's (optional)
 #   firmware/      files for /lib/firmware on the device, same layout. Stored
 #                  in the ESP as /firmware.sqfs and merged over the rootfs'
-#                  /lib/firmware at boot (pkg/qti 007-qcom-board-fw) (optional)
+#                  /lib/firmware at boot (pkg/qcom 007-qcom-board-fw) (optional)
 #   flash/         files copied into the bundle over the base's ones: same
 #                  path replaces, otherwise added (optional)
 #
